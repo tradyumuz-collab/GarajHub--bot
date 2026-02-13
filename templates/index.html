@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="uz" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>GarajHub - Admin Panel</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
+</head>
+<body>
+    <!-- Loading screen -->
+    <div id="loadingScreen" class="loading-screen">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <p>GarajHub Admin Panel yuklanmoqda...</p>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Yon panel -->
+        <aside class="sidebar">
+            <div class="logo">
+                <h1><i class="fas fa-rocket"></i> <span>GarajHub</span></h1>
+                <button class="menu-toggle" id="menuToggle">
+                    <i class="fas fa-bars"></i>
+                </button>
+            </div>
+            
+            <nav class="menu">
+                <div class="menu-section">
+                    <h3>Boshqaruv paneli</h3>
+                    <ul>
+                        <li class="active" data-page="dashboard">
+                            <a href="#"><i class="fas fa-tachometer-alt"></i> <span>Asosiy panel</span></a>
+                        </li>
+                        <li data-page="users">
+                            <a href="#"><i class="fas fa-users"></i> <span>Foydalanuvchilar</span></a>
+                        </li>
+                        <li data-page="startups">
+                            <a href="#"><i class="fas fa-rocket"></i> <span>Startaplar</span></a>
+                        </li>
+                        <li data-page="messages">
+                            <a href="#"><i class="fas fa-envelope"></i> <span>Xabarlar</span></a>
+                        </li>
+                        <li data-page="statistics">
+                            <a href="#"><i class="fas fa-chart-bar"></i> <span>Statistika</span></a>
+                        </li>
+                    </ul>
+                </div>
+                
+                <div class="menu-section">
+                    <h3>Tizim sozlamalari</h3>
+                    <ul>
+                        <li data-page="settings">
+                            <a href="#"><i class="fas fa-cog"></i> <span>Sozlamalar</span></a>
+                        </li>
+                        <li data-page="admins">
+                            <a href="#"><i class="fas fa-user-shield"></i> <span>Adminlar</span></a>
+                        </li>
+                        <li data-page="system">
+                            <a href="#"><i class="fas fa-server"></i> <span>Tizim holati</span></a>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+            
+            <div class="user-profile">
+                <div class="user-avatar">
+                    <img id="adminAvatar" src="https://ui-avatars.com/api/?name=Admin&background=000&color=fff" alt="Admin">
+                </div>
+                <div class="user-info">
+                    <h4 id="adminName">Admin</h4>
+                    <p id="adminEmail">admin@garajhub.uz</p>
+                    <div class="user-status">
+                        <span class="status-dot online"></span>
+                        <span class="status-text">Online</span>
+                    </div>
+                </div>
+                <div class="profile-actions">
+                    <button class="profile-btn" id="profileBtn" title="Profil">
+                        <i class="fas fa-user-circle"></i>
+                    </button>
+                    <button class="logout-btn" id="logoutBtn" title="Chiqish">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Asosiy kontent -->
+        <main class="main-content">
+            <header class="header">
+                <div class="breadcrumb">
+                    <span class="breadcrumb-item active">Asosiy panel</span>
+                </div>
+                
+                <div class="header-actions">
+                    <div class="search-box">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="searchInput" placeholder="Qidirish...">
+                        <div class="search-results" id="searchResults"></div>
+                    </div>
+                    
+                    <div class="header-buttons">
+                        <button class="header-btn notification-btn" id="notificationBtn">
+                            <i class="fas fa-bell"></i>
+                            <span class="badge" id="notificationBadge">0</span>
+                        </button>
+                        
+                        <div class="theme-toggle">
+                            <input type="checkbox" id="themeToggle" class="toggle-checkbox">
+                            <label for="themeToggle" class="toggle-label">
+                                <i class="fas fa-sun"></i>
+                                <i class="fas fa-moon"></i>
+                                <div class="toggle-ball"></div>
+                            </label>
+                        </div>
+                        
+                        <button class="header-btn add-btn" onclick="openBroadcastModal()">
+                            <i class="fas fa-bullhorn"></i>
+                            <span>Xabar yuborish</span>
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Login sahifasi -->
+            <div class="page active" id="loginPage">
+                <div class="login-container">
+                    <div class="login-card">
+                        <div class="login-header">
+                            <h1><i class="fas fa-rocket"></i> GarajHub</h1>
+                            <p>Admin paneliga kirish</p>
+                        </div>
+                        
+                        <form id="loginForm">
+                            <div class="form-group">
+                                <label for="loginUsername">Foydalanuvchi nomi</label>
+                                <div class="input-with-icon">
+                                    <i class="fas fa-user"></i>
+                                    <input type="text" id="loginUsername" placeholder="admin" required>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="loginPassword">Parol</label>
+                                <div class="input-with-icon">
+                                    <i class="fas fa-lock"></i>
+                                    <input type="password" id="loginPassword" placeholder="••••••••" required>
+                                    <button type="button" class="toggle-password" id="togglePassword">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <button type="submit" class="login-btn">
+                                <i class="fas fa-sign-in-alt"></i> Kirish
+                            </button>
+                            
+                            <div class="login-footer">
+                                <p>Dastlabki kirish ma'lumotlari: <code>admin</code> / <code>admin123</code></p>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dashboard sahifasi -->
+            <div class="page" id="dashboardPage">
+                <div class="dashboard-content">
+                    <!-- Statistik kartalar -->
+                    <div class="stats-section">
+                        <div class="stat-card total-users">
+                            <div class="stat-icon">
+                                <i class="fas fa-user-friends"></i>
+                            </div>
+                            <div class="stat-info">
+                                <h3>Jami foydalanuvchilar</h3>
+                                <p class="stat-number" id="totalUsers">0</p>
+                                <div class="stat-actions">
+                                    <button class="stat-btn view-btn" onclick="showPage('users')">
+                                        <i class="fas fa-eye"></i> Ko'rish
+                                    </button>
+                                    <button class="stat-btn refresh-btn" onclick="loadDashboard()">
+                                        <i class="fas fa-redo"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="stat-grid">
+                            <div class="stat-card">
+                                <div class="stat-header">
+                                    <h4>Jami startaplar</h4>
+                                    <button class="stat-info-btn" onclick="showToast('Jami ro\'yxatdan o\'tgan startaplar', 'info')">
+                                        <i class="fas fa-info-circle"></i>
+                                    </button>
+                                </div>
+                                <p class="stat-number" id="totalStartups">0</p>
+                                <p class="stat-subtitle">
+                                    <i class="fas fa-building"></i>
+                                    <span>Ro'yxatdan o'tgan kompaniyalar</span>
+                                </p>
+                                <div class="stat-trend" id="startupTrend">
+                                    <i class="fas fa-arrow-up"></i>
+                                    <span>0% o'sish</span>
+                                </div>
+                            </div>
+                            
+                            <div class="stat-card">
+                                <div class="stat-header">
+                                    <h4>Faol startaplar</h4>
+                                    <button class="stat-info-btn" onclick="showToast('Hozirda faol ishlayotgan startaplar', 'info')">
+                                        <i class="fas fa-info-circle"></i>
+                                    </button>
+                                </div>
+                                <p class="stat-number" id="activeStartups">0</p>
+                                <p class="stat-subtitle">
+                                    <i class="fas fa-check-circle"></i>
+                                    <span>Hozirda faol</span>
+                                </p>
+                                <div class="stat-trend positive">
+                                    <i class="fas fa-arrow-up"></i>
+                                    <span id="activeStartupCount">0 ta</span>
+                                </div>
+                            </div>
+                            
+                            <div class="stat-card">
+                                <div class="stat-header">
+                                    <h4>Bugungi yangiliklar</h4>
+                                    <button class="stat-info-btn" onclick="showToast('Bugun ro\'yxatdan o\'tgan foydalanuvchilar va startaplar', 'info')">
+                                        <i class="fas fa-info-circle"></i>
+                                    </button>
+                                </div>
+                                <p class="stat-number" id="newToday">0</p>
+                                <p class="stat-subtitle">
+                                    <i class="fas fa-calendar-day"></i>
+                                    <span>Bugun qo'shilgan</span>
+                                </p>
+                                <div class="stat-trend positive">
+                                    <i class="fas fa-user-plus"></i>
+                                    <span id="newUsersToday">0 user</span>
+                                </div>
+                            </div>
+                            
+                            <div class="stat-card">
+                                <div class="stat-header">
+                                    <h4>Faollik darajasi</h4>
+                                    <button class="stat-info-btn" onclick="showToast('Oylik faollik darajasi', 'info')">
+                                        <i class="fas fa-info-circle"></i>
+                                    </button>
+                                </div>
+                                <p class="stat-number" id="activityRate">0%</p>
+                                <div class="progress-bar">
+                                    <div class="progress-fill" id="activityProgress" style="width: 0%"></div>
+                                </div>
+                                <p class="stat-subtitle">
+                                    <i class="fas fa-chart-line"></i>
+                                    <span>Oylik faollik</span>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Grafiklar bo'limi -->
+                    <div class="charts-section">
+                        <div class="chart-card">
+                            <div class="chart-header">
+                                <h3>Foydalanuvchi o'sishi</h3>
+                                <div class="chart-actions">
+                                    <button class="chart-action-btn export-btn" onclick="exportChart('userGrowth')">
+                                        <i class="fas fa-download"></i>
+                                    </button>
+                                    <div class="chart-filter">
+                                        <select id="growthFilter" class="filter-select" onchange="loadUserGrowthChart()">
+                                            <option value="week">Oxirgi 7 kun</option>
+                                            <option value="month" selected>Oxirgi 30 kun</option>
+                                            <option value="quarter">Oxirgi 90 kun</option>
+                                            <option value="year">Oxirgi 1 yil</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="userGrowthChart"></canvas>
+                            </div>
+                        </div>
+
+                        <div class="chart-card">
+                            <div class="chart-header">
+                                <h3>Startap taqsimoti</h3>
+                                <div class="chart-actions">
+                                    <button class="chart-action-btn legend-toggle" onclick="toggleLegend()">
+                                        <i class="fas fa-list"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="distribution-container">
+                                <div class="donut-chart-container">
+                                    <canvas id="startupDistributionChart"></canvas>
+                                    <div class="chart-center-text">
+                                        <span class="center-number" id="totalStartupsChart">0</span>
+                                        <span class="center-label">Jami</span>
+                                    </div>
+                                </div>
+                                <div class="distribution-legend" id="distributionLegend"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- So'nggi faollik -->
+                    <div class="activity-section">
+                        <div class="chart-card">
+                            <div class="chart-header">
+                                <h3>So'nggi faollik</h3>
+                                <div class="activity-header-actions">
+                                    <button class="activity-filter-btn active" onclick="filterActivity('all')">Hammasi</button>
+                                    <button class="activity-filter-btn" onclick="filterActivity('users')">Foydalanuvchilar</button>
+                                    <button class="activity-filter-btn" onclick="filterActivity('startups')">Startaplar</button>
+                                </div>
+                            </div>
+                            <div class="activity-list" id="activityList">
+                                <div class="activity-item">
+                                    <div class="activity-icon">
+                                        <i class="fas fa-user"></i>
+                                    </div>
+                                    <div class="activity-content">
+                                        <div class="activity-text">Tizim yuklandi</div>
+                                        <div class="activity-time">Hozirgina</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Foydalanuvchilar sahifasi -->
+            <div class="page" id="usersPage">
+                <div class="page-header">
+                    <h2>Foydalanuvchilar boshqaruvi</h2>
+                    <p>Barcha ro'yxatdan o'tgan foydalanuvchilarni ko'rish va boshqarish</p>
+                </div>
+                
+                <div class="page-controls">
+                    <div class="search-controls">
+                        <div class="search-box-inline">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="userSearch" placeholder="Foydalanuvchi qidirish...">
+                        </div>
+                        <select id="userFilter" class="filter-select" onchange="loadUsers()">
+                            <option value="all">Barcha holatlar</option>
+                            <option value="active">Faol</option>
+                            <option value="inactive">Faol emas</option>
+                        </select>
+                    </div>
+                    
+                    <button class="export-btn" onclick="exportUsers()">
+                        <i class="fas fa-download"></i> Eksport
+                    </button>
+                </div>
+                
+                <div class="table-container">
+                    <table class="data-table" id="usersTable">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Ism</th>
+                                <th>Username</th>
+                                <th>Telefon</th>
+                                <th>Ro'yxatdan o'tgan sana</th>
+                                <th>Holati</th>
+                                <th>Harakatlar</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usersTableBody"></tbody>
+                    </table>
+                </div>
+                
+                <div class="pagination" id="usersPagination"></div>
+            </div>
+
+            <!-- Startaplar sahifasi -->
+            <div class="page" id="startupsPage">
+                <div class="page-header">
+                    <h2>Startaplar boshqaruvi</h2>
+                    <p>Barcha startaplarni ko'rish va boshqarish</p>
+                </div>
+                
+                <div class="page-controls">
+                    <div class="search-controls">
+                        <div class="search-box-inline">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="startupSearch" placeholder="Startap qidirish...">
+                        </div>
+                        <select id="startupFilter" class="filter-select" onchange="loadStartups()">
+                            <option value="all">Barcha holatlar</option>
+                            <option value="pending">Kutilayotgan</option>
+                            <option value="active">Faol</option>
+                            <option value="completed">Yakunlangan</option>
+                            <option value="rejected">Rad etilgan</option>
+                        </select>
+                    </div>
+                    
+                    <button class="export-btn" onclick="exportStartups()">
+                        <i class="fas fa-download"></i> Eksport
+                    </button>
+                </div>
+                
+                <div class="table-container">
+                    <table class="data-table" id="startupsTable">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Nomi</th>
+                                <th>Muallif</th>
+                                <th>Holati</th>
+                                <th>Yaratilgan sana</th>
+                                <th>A'zolar</th>
+                                <th>Harakatlar</th>
+                            </tr>
+                        </thead>
+                        <tbody id="startupsTableBody"></tbody>
+                    </table>
+                </div>
+                
+                <div class="pagination" id="startupsPagination"></div>
+            </div>
+
+            <!-- Xabarlar sahifasi -->
+            <div class="page" id="messagesPage">
+                <div class="page-header">
+                    <h2>Xabar yuborish</h2>
+                    <p>Foydalanuvchilarga xabar yuborish</p>
+                </div>
+                
+                <div class="message-form-container">
+                    <form id="broadcastForm">
+                        <div class="form-group">
+                            <label for="messageText">Xabar matni *</label>
+                            <textarea id="messageText" rows="6" placeholder="Xabar matnini kiriting..." required></textarea>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="messageType">Qabul qiluvchilar *</label>
+                            <select id="messageType" required>
+                                <option value="all">Barcha foydalanuvchilar</option>
+                                <option value="startup_owners">Startap mualliflari</option>
+                                <option value="startup_members">Startap a'zolari</option>
+                                <option value="active">Faol foydalanuvchilar</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button type="button" class="cancel-btn" onclick="clearMessageForm()">
+                                Tozalash
+                            </button>
+                            <button type="submit" class="submit-btn">
+                                <i class="fas fa-paper-plane"></i> Xabarni yuborish
+                            </button>
+                        </div>
+                    </form>
+                    
+                    <div class="message-history">
+                        <h3>Yuborilgan xabarlar</h3>
+                        <div class="history-list" id="messageHistory">
+                            <div class="empty-state">
+                                <i class="fas fa-history"></i>
+                                <p>Xabar tarixi bo'sh</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Statistika sahifasi -->
+            <div class="page" id="statisticsPage">
+                <div class="page-header">
+                    <h2>Batafsil statistika</h2>
+                    <p>Tizimning batafsil statistik ma'lumotlari</p>
+                </div>
+                
+                <div class="stats-filters">
+                    <select id="statsPeriod" class="filter-select" onchange="loadDetailedStatistics()">
+                        <option value="today">Bugun</option>
+                        <option value="week">Oxirgi hafta</option>
+                        <option value="month" selected>Oxirgi oy</option>
+                        <option value="quarter">Oxirgi chorak</option>
+                        <option value="year">Oxirgi yil</option>
+                    </select>
+                </div>
+                
+                <div class="detailed-stats">
+                    <div class="stats-card">
+                        <h3>Foydalanuvchi statistikasi</h3>
+                        <div class="stats-grid">
+                            <div class="stat-item">
+                                <span class="stat-label">Jami foydalanuvchilar</span>
+                                <span class="stat-value" id="detailedTotalUsers">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Faol foydalanuvchilar</span>
+                                <span class="stat-value" id="detailedActiveUsers">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Bugun qo'shilgan</span>
+                                <span class="stat-value" id="detailedNewUsers">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">O'rtacha kunlik</span>
+                                <span class="stat-value" id="detailedAvgDailyUsers">0</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="stats-card">
+                        <h3>Startap statistikasi</h3>
+                        <div class="stats-grid">
+                            <div class="stat-item">
+                                <span class="stat-label">Jami startaplar</span>
+                                <span class="stat-value" id="detailedTotalStartups">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Faol startaplar</span>
+                                <span class="stat-value" id="detailedActiveStartups">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Bugun qo'shilgan</span>
+                                <span class="stat-value" id="detailedNewStartups">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Muvaffaqiyat darajasi</span>
+                                <span class="stat-value" id="detailedSuccessRate">0%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="activity-chart-card">
+                    <h3>Faollik grafigi</h3>
+                    <div class="chart-container-large">
+                        <canvas id="activityChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Adminlar sahifasi -->
+            <div class="page" id="adminsPage">
+                <div class="page-header">
+                    <h2>Adminlar boshqaruvi</h2>
+                    <p>Admin hisoblarini boshqarish</p>
+                </div>
+                
+                <div class="admins-container">
+                    <div class="admins-list">
+                        <div class="admins-header">
+                            <h3>Adminlar ro'yxati</h3>
+                            <button class="add-admin-btn" onclick="openAddAdminModal()">
+                                <i class="fas fa-plus"></i> Yangi admin
+                            </button>
+                        </div>
+                        
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Foydalanuvchi nomi</th>
+                                        <th>To'liq ism</th>
+                                        <th>Email</th>
+                                        <th>Roli</th>
+                                        <th>Oxirgi kirish</th>
+                                        <th>Harakatlar</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="adminsTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tizim holati sahifasi -->
+            <div class="page" id="systemPage">
+                <div class="page-header">
+                    <h2>Tizim holati</h2>
+                    <p>Server va xizmatlar holatini kuzatish</p>
+                </div>
+                
+                <div class="system-stats">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <h4>CPU foydalanishi</h4>
+                            </div>
+                            <p class="stat-number" id="cpuUsage">0%</p>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="cpuProgress" style="width: 0%"></div>
+                            </div>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <h4>Xotira foydalanishi</h4>
+                            </div>
+                            <p class="stat-number" id="memoryUsage">0%</p>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="memoryProgress" style="width: 0%"></div>
+                            </div>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <h4>Disk foydalanishi</h4>
+                            </div>
+                            <p class="stat-number" id="diskUsage">0%</p>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="diskProgress" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="services-status">
+                        <h3>Xizmatlar holati</h3>
+                        <div class="services-grid">
+                            <div class="service-item">
+                                <div class="service-icon">
+                                    <i class="fas fa-robot"></i>
+                                </div>
+                                <div class="service-info">
+                                    <h4>Telegram Bot</h4>
+                                    <p id="botStatusText">Yuklanmoqda...</p>
+                                </div>
+                                <div class="service-status">
+                                    <span class="status-dot" id="botStatusDot"></span>
+                                </div>
+                            </div>
+                            
+                            <div class="service-item">
+                                <div class="service-icon">
+                                    <i class="fas fa-database"></i>
+                                </div>
+                                <div class="service-info">
+                                    <h4>Ma'lumotlar bazasi</h4>
+                                    <p id="dbStatusText">Yuklanmoqda...</p>
+                                </div>
+                                <div class="service-status">
+                                    <span class="status-dot" id="dbStatusDot"></span>
+                                </div>
+                            </div>
+                            
+                            <div class="service-item">
+                                <div class="service-icon">
+                                    <i class="fas fa-server"></i>
+                                </div>
+                                <div class="service-info">
+                                    <h4>Web Server</h4>
+                                    <p>Port: 5000</p>
+                                </div>
+                                <div class="service-status">
+                                    <span class="status-dot online"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sozlamalar sahifasi -->
+            <div class="page" id="settingsPage">
+                <div class="page-header">
+                    <h2>Tizim sozlamalari</h2>
+                    <p>Tizim parametrlarini sozlash</p>
+                </div>
+                
+                <div class="settings-container">
+                    <div class="settings-tabs">
+                        <button class="settings-tab active" data-tab="general">Umumiy</button>
+                        <button class="settings-tab" data-tab="bot">Bot sozlamalari</button>
+                        <button class="settings-tab" data-tab="notifications">Bildirishnomalar</button>
+                    </div>
+                    
+                    <div class="settings-content">
+                        <div class="settings-tab-content active" id="generalTab">
+                            <form id="generalSettingsForm">
+                                <div class="form-group">
+                                    <label for="siteName">Sayt nomi</label>
+                                    <input type="text" id="siteName" value="GarajHub" placeholder="Sayt nomi">
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="adminEmail">Admin email</label>
+                                    <input type="email" id="adminEmail" value="admin@garajhub.uz" placeholder="Admin email">
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="timezone">Vaqt zonasi</label>
+                                    <select id="timezone">
+                                        <option value="Asia/Tashkent" selected>Toshkent (UTC+5)</option>
+                                        <option value="UTC">UTC</option>
+                                        <option value="Europe/London">London (UTC+0)</option>
+                                    </select>
+                                </div>
+                                
+                                <button type="submit" class="save-btn">
+                                    <i class="fas fa-save"></i> Saqlash
+                                </button>
+                            </form>
+                        </div>
+                        
+                        <div class="settings-tab-content" id="botTab">
+                            <div class="bot-info">
+                                <h4>Bot ma'lumotlari</h4>
+                                <p>Bot status: <span class="status-badge" id="botStatusBadge">Yuklanmoqda...</span></p>
+                                <p>Kanal: <code>@GarajHub_uz</code></p>
+                                <p>Admin ID: <code>Yuklanmoqda...</code></p>
+                            </div>
+                        </div>
+                        
+                        <div class="settings-tab-content" id="notificationsTab">
+                            <div class="notifications-settings">
+                                <h4>Bildirishnoma sozlamalari</h4>
+                                <div class="form-group checkbox-group">
+                                    <input type="checkbox" id="notifyNewUsers" checked>
+                                    <label for="notifyNewUsers">Yangi foydalanuvchilar haqida bildirishnoma</label>
+                                </div>
+                                
+                                <div class="form-group checkbox-group">
+                                    <input type="checkbox" id="notifyNewStartups" checked>
+                                    <label for="notifyNewStartups">Yangi startaplar haqida bildirishnoma</label>
+                                </div>
+                                
+                                <div class="form-group checkbox-group">
+                                    <input type="checkbox" id="notifyStartupApproval" checked>
+                                    <label for="notifyStartupApproval">Startap tasdiqlanganida bildirishnoma</label>
+                                </div>
+                                
+                                <button type="button" class="save-btn" onclick="saveNotificationSettings()">
+                                    <i class="fas fa-save"></i> Saqlash
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal oynalar -->
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal" id="broadcastModal">
+            <div class="modal-header">
+                <h3>Xabar yuborish</h3>
+                <button class="close-modal" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="broadcastModalContent">
+                    <form id="broadcastFormModal">
+                        <div class="form-group">
+                            <label for="modalMessageText">Xabar matni *</label>
+                            <textarea id="modalMessageText" rows="5" placeholder="Xabar matnini kiriting..." required></textarea>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="modalMessageType">Qabul qiluvchilar *</label>
+                            <select id="modalMessageType" required>
+                                <option value="all">Barcha foydalanuvchilar</option>
+                                <option value="startup_owners">Startap mualliflari</option>
+                                <option value="startup_members">Startap a'zolari</option>
+                                <option value="active">Faol foydalanuvchilar</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button type="button" class="cancel-btn" onclick="closeModal()">Bekor qilish</button>
+                            <button type="submit" class="submit-btn">Xabarni yuborish</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <div class="modal" id="userDetailModal">
+            <div class="modal-header">
+                <h3>Foydalanuvchi ma'lumotlari</h3>
+                <button class="close-modal" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="userDetailContent">
+                    <div class="loading-spinner small"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="modal" id="startupDetailModal">
+            <div class="modal-header">
+                <h3>Startap ma'lumotlari</h3>
+                <button class="close-modal" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="startupDetailContent">
+                    <div class="loading-spinner small"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="modal" id="addAdminModal">
+            <div class="modal-header">
+                <h3>Yangi admin qo'shish</h3>
+                <button class="close-modal" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="addAdminForm">
+                    <div class="form-group">
+                        <label for="newAdminUsername">Foydalanuvchi nomi *</label>
+                        <input type="text" id="newAdminUsername" placeholder="admin" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="newAdminPassword">Parol *</label>
+                        <input type="password" id="newAdminPassword" placeholder="••••••••" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="newAdminFullName">To'liq ism *</label>
+                        <input type="text" id="newAdminFullName" placeholder="To'liq ism" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="newAdminEmail">Email *</label>
+                        <input type="email" id="newAdminEmail" placeholder="email@example.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="newAdminRole">Roli *</label>
+                        <select id="newAdminRole" required>
+                            <option value="admin">Admin</option>
+                            <option value="superadmin">Super Admin</option>
+                        </select>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="cancel-btn" onclick="closeModal()">Bekor qilish</button>
+                        <button type="submit" class="submit-btn">Qo'shish</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
