@@ -1,5 +1,6 @@
 import os
 import logging
+import sys
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 import telebot
@@ -9,6 +10,17 @@ import time
 from telebot import types
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from dotenv import load_dotenv
+
+def _ensure_utf8_stdio():
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8")
+            except Exception:
+                pass
+
+_ensure_utf8_stdio()
 
 # Environment o'qish
 load_dotenv()
@@ -1243,33 +1255,30 @@ def handle_category_startup_view(call):
 @bot.callback_query_handler(func=lambda call: call.data.startswith('join_startup_'))
 def handle_join_startup(call):
     try:
-        startup_id = call.data.split('_')[2]
+        startup_id = call.data.replace('join_startup_', '', 1)
         user_id = call.from_user.id
-        
+
         # Startup ma'lumotlarini olish
         startup = get_startup(startup_id)
         if not startup:
             bot.answer_callback_query(call.id, "❌ Startup topilmadi!", show_alert=True)
             return
-        
+
         # A'zolar sonini tekshirish
         current_members = get_startup_member_count(startup_id)
         max_members = startup.get('max_members', 10)
-        
         if current_members >= max_members:
             bot.answer_callback_query(call.id, "❌ A'zolar to'ldi!", show_alert=True)
             return
-        
+
         # Startup egasi ekanligini tekshirish
         if startup['owner_id'] == user_id:
             bot.answer_callback_query(call.id, "❌ Siz bu startupning egasisiz!", show_alert=True)
             return
-        
+
         # Avval so'rov yuborilganligini tekshirish
         request_id = get_join_request_id(startup_id, user_id)
-        
         if request_id:
-            # So'rov holatini tekshirish
             member_request = get_join_request(request_id)
             if member_request:
                 if member_request['status'] == 'pending':
@@ -1279,43 +1288,55 @@ def handle_join_startup(call):
                 elif member_request['status'] == 'rejected':
                     bot.answer_callback_query(call.id, "❌ So'rovingiz avval rad etilgan.", show_alert=True)
             return
-        
+
         # Yangi so'rov yaratish
         add_startup_member(startup_id, user_id)
         request_id = get_join_request_id(startup_id, user_id)
-        
+        if not request_id:
+            logging.error(f"Join request saqlanmadi: startup_id={startup_id}, user_id={user_id}")
+            bot.answer_callback_query(call.id, "⚠️ So'rovni saqlashda xatolik yuz berdi.", show_alert=True)
+            return
+
         # Foydalanuvchiga xabar
         bot.answer_callback_query(call.id, "✅ So'rovingiz muvaffaqiyatli yuborildi.", show_alert=True)
-        
+
         # Startup egasiga xabar yuborish
-        if startup:
-            user = get_user(user_id)
-            
-            if user:
-                user_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip()
-                if not user_name:
-                    user_name = f"User {user_id}"
-                
-                text = (
-                    f"🆕 <b>Qo'shilish so'rovi</b>\n\n"
-                    f"👤 <b>Foydalanuvchi:</b> <a href='tg://user?id={user_id}'>{user_name}</a>\n"
-                    f"📞 <b>Telefon:</b> {format_value(user.get('phone'))}\n"
-                    f"🔧 <b>Mutaxassislik:</b> {format_value(user.get('specialization'))}\n"
-                    f"📈 <b>Tajriba:</b> {format_value(user.get('experience'))}\n"
-                    f"📝 <b>Bio:</b> {format_value(user.get('bio'))}\n\n"
-                    f"🎯 <b>Startup:</b> {startup['name']}"
-                )
-                
-                markup = InlineKeyboardMarkup()
-                markup.add(
-                    InlineKeyboardButton('✅ Tasdiqlash', callback_data=f'approve_join_{request_id}'),
-                    InlineKeyboardButton('❌ Rad etish', callback_data=f'reject_join_{request_id}')
-                )
-                
-                try:
-                    bot.send_message(startup['owner_id'], text, reply_markup=markup)
-                except Exception as e:
-                    logging.error(f"Egaga xabar yuborishda xatolik: {e}")
+        user = get_user(user_id)
+        if not user:
+            try:
+                save_user(user_id, call.from_user.username or "", call.from_user.first_name or "")
+                user = get_user(user_id)
+            except Exception as e:
+                logging.warning(f"Join so'rovida user create bo'lmadi: {e}")
+                user = None
+
+        user = user or {}
+        first_name = user.get('first_name') or (call.from_user.first_name or "")
+        last_name = user.get('last_name') or (call.from_user.last_name or "")
+        user_name = f"{first_name} {last_name}".strip()
+        if not user_name:
+            user_name = call.from_user.username or f"User {user_id}"
+
+        text = (
+            f"🆕 <b>Qo'shilish so'rovi</b>\n\n"
+            f"👤 <b>Foydalanuvchi:</b> <a href='tg://user?id={user_id}'>{escape_html(user_name)}</a>\n"
+            f"📞 <b>Telefon:</b> {escape_html(format_value(user.get('phone')))}\n"
+            f"🔧 <b>Mutaxassislik:</b> {escape_html(format_value(user.get('specialization')))}\n"
+            f"📈 <b>Tajriba:</b> {escape_html(format_value(user.get('experience')))}\n"
+            f"📝 <b>Bio:</b> {escape_html(format_value(user.get('bio')))}\n\n"
+            f"🎯 <b>Startup:</b> {escape_html(startup['name'])}"
+        )
+
+        markup = InlineKeyboardMarkup()
+        markup.add(
+            InlineKeyboardButton('✅ Tasdiqlash', callback_data=f'approve_join_{request_id}'),
+            InlineKeyboardButton('❌ Rad etish', callback_data=f'reject_join_{request_id}')
+        )
+
+        try:
+            bot.send_message(startup['owner_id'], text, reply_markup=markup)
+        except Exception as e:
+            logging.error(f"Egaga xabar yuborishda xatolik: {e}")
     except Exception as e:
         logging.error(f"Join startup xatosi: {e}")
         bot.answer_callback_query(call.id, "⚠️ Xatolik yuz berdi!", show_alert=True)

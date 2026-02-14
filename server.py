@@ -11,6 +11,17 @@ import traceback
 import sys
 from werkzeug.security import generate_password_hash, check_password_hash
 
+def _ensure_utf8_stdio():
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8")
+            except Exception:
+                pass
+
+_ensure_utf8_stdio()
+
 # Bot va Database importlarini aniq qilamiz
 sys.path.append('.')  # Joriy papkaga qo'shamiz
 

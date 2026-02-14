@@ -1,11 +1,23 @@
 # db.py - SQLite versiya
 import sqlite3
 import os
+import sys
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 import json
 import calendar
 from werkzeug.security import generate_password_hash
+
+def _ensure_utf8_stdio():
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8")
+            except Exception:
+                pass
+
+_ensure_utf8_stdio()
 
 DB_PATH = 'garajhub.db'
 
