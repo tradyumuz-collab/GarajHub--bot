@@ -693,6 +693,31 @@ def get_payment(payment_id: int) -> Optional[Dict]:
     return _without_mongo_id(row)
 
 
+def set_payment_admin_review_messages(payment_id: int, messages: List[Dict]):
+    normalized = []
+    for item in messages or []:
+        try:
+            chat_id = int(item.get("chat_id"))
+            message_id = int(item.get("message_id"))
+        except Exception:
+            continue
+        normalized.append({"chat_id": chat_id, "message_id": message_id})
+
+    _get_db()["pro_payments"].update_one(
+        {"id": int(payment_id)},
+        {"$set": {"admin_review_messages": normalized}},
+    )
+
+
+def transition_payment_status(payment_id: int, from_status: str, to_status: str) -> Optional[Dict]:
+    row = _get_db()["pro_payments"].find_one_and_update(
+        {"id": int(payment_id), "status": from_status},
+        {"$set": {"status": to_status, "processed_at": _now_iso()}},
+        return_document=ReturnDocument.AFTER,
+    )
+    return _without_mongo_id(row)
+
+
 def get_pending_payments(limit: int = 20) -> List[Dict]:
     rows = _get_db()["pro_payments"].find({"status": "pending"}).sort("created_at", DESCENDING).limit(int(limit))
     return [_without_mongo_id(row) for row in rows if row]
@@ -921,6 +946,43 @@ def update_startup_status(startup_id: str, status: str):
     if status == "active":
         updates["started_at"] = _now_iso()
     _get_db()[STARTUPS_COLLECTION].update_one({"id": sid}, {"$set": updates})
+
+
+def transition_startup_status(startup_id: str, from_status: str, to_status: str) -> Optional[Dict]:
+    sid = _to_int(startup_id, None)
+    if sid is None:
+        return None
+
+    updates: Dict[str, Any] = {"status": to_status}
+    if to_status == "active":
+        updates["started_at"] = _now_iso()
+
+    row = _get_db()[STARTUPS_COLLECTION].find_one_and_update(
+        {"id": sid, "status": from_status},
+        {"$set": updates},
+        return_document=ReturnDocument.AFTER,
+    )
+    return _normalize_startup(row)
+
+
+def set_startup_admin_review_messages(startup_id: str, messages: List[Dict]):
+    sid = _to_int(startup_id, None)
+    if sid is None:
+        return
+
+    normalized = []
+    for item in messages or []:
+        try:
+            chat_id = int(item.get("chat_id"))
+            message_id = int(item.get("message_id"))
+        except Exception:
+            continue
+        normalized.append({"chat_id": chat_id, "message_id": message_id})
+
+    _get_db()[STARTUPS_COLLECTION].update_one(
+        {"id": sid},
+        {"$set": {"admin_review_messages": normalized}},
+    )
 
 
 def update_startup_results(startup_id: str, results: str, completed_at: datetime):

@@ -51,6 +51,71 @@ def is_admin_user(user_id: int) -> bool:
     except Exception:
         return False
 
+
+def _startup_status_label(status: str) -> str:
+    return {
+        "pending": "kutilmoqda",
+        "active": "tasdiqlangan",
+        "rejected": "rad etilgan",
+        "completed": "yakunlangan",
+    }.get(status or "", "qayta ishlangan")
+
+
+def _close_startup_admin_review_messages(startup: Dict, text: str, skip_chat_id: Optional[int] = None, skip_message_id: Optional[int] = None):
+    messages = startup.get("admin_review_messages") or []
+    for item in messages:
+        try:
+            chat_id = int(item.get("chat_id"))
+            message_id = int(item.get("message_id"))
+        except Exception:
+            continue
+
+        if skip_chat_id is not None and skip_message_id is not None:
+            if chat_id == int(skip_chat_id) and message_id == int(skip_message_id):
+                continue
+
+        try:
+            if startup.get("logo"):
+                bot.edit_message_caption(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    caption=text,
+                    parse_mode="HTML"
+                )
+            else:
+                bot.edit_message_text(
+                    text=text,
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    parse_mode="HTML"
+                )
+        except Exception:
+            pass
+
+
+def _close_payment_admin_review_messages(payment: Dict, text: str, skip_chat_id: Optional[int] = None, skip_message_id: Optional[int] = None):
+    messages = payment.get("admin_review_messages") or []
+    for item in messages:
+        try:
+            chat_id = int(item.get("chat_id"))
+            message_id = int(item.get("message_id"))
+        except Exception:
+            continue
+
+        if skip_chat_id is not None and skip_message_id is not None:
+            if chat_id == int(skip_chat_id) and message_id == int(skip_message_id):
+                continue
+
+        try:
+            bot.edit_message_caption(
+                chat_id=chat_id,
+                message_id=message_id,
+                caption=text,
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
 # HTML belgilarni tozalash funksiyasi
 def escape_html(text):
     """HTML belgilarini tozalash - Telegram HTML formatida ishlash uchun"""
@@ -76,7 +141,7 @@ from db import (
     init_db,
     get_user, save_user, update_user_field,
     create_startup, get_startup, get_startups_by_owner,
-    get_pending_startups, get_active_startups, update_startup_status, update_startup_results,
+    get_pending_startups, get_active_startups, update_startup_status, transition_startup_status, update_startup_results,
     add_startup_member, get_join_request_id, update_join_request, get_join_request,
     get_startup_members, get_statistics, get_all_users,
     get_recent_users, get_recent_startups, get_completed_startups,
@@ -85,11 +150,11 @@ from db import (
     get_user_joined_startups, get_startups_by_ids,
     update_user_specialization, update_user_experience,
     update_startup_member_count, get_startup_member_count,
-    update_startup_post_id, get_startup_by_post_id,
+    update_startup_post_id, get_startup_by_post_id, set_startup_admin_review_messages,
     update_startup_current_members,
     get_pro_settings, set_pro_enabled, set_pro_price, set_pro_card,
     is_user_pro, add_pro_subscription,
-    create_pro_payment, get_payment, get_pending_payments, update_payment_status,
+    create_pro_payment, get_payment, get_pending_payments, update_payment_status, transition_payment_status, set_payment_admin_review_messages,
     register_referral, confirm_referral, get_confirmed_referral_count,
     get_referral_reward_count, add_referral_reward,
     get_user_startup_count, get_active_pro_subscription
@@ -410,11 +475,18 @@ def handle_photo_messages(message):
         InlineKeyboardButton('❌ Rad etish', callback_data=f'pro_pay_reject_{payment_id}')
     )
 
+    admin_review_messages = []
     for admin_chat_id in ADMIN_IDS:
         try:
-            bot.send_photo(admin_chat_id, receipt_file_id, caption=text, reply_markup=markup)
+            sent_msg = bot.send_photo(admin_chat_id, receipt_file_id, caption=text, reply_markup=markup)
+            admin_review_messages.append({"chat_id": admin_chat_id, "message_id": sent_msg.message_id})
         except Exception as e:
             logging.error(f"Admin payment notify xatosi ({admin_chat_id}): {e}")
+    if admin_review_messages:
+        try:
+            set_payment_admin_review_messages(payment_id, admin_review_messages)
+        except Exception as e:
+            logging.error(f"Payment review messages saqlashda xatolik: {e}")
 
     bot.send_message(
         message.chat.id,
@@ -1871,14 +1943,21 @@ def process_startup_max_members(message):
         InlineKeyboardButton('❌ Rad etish', callback_data=f'admin_reject_{startup_id}')
     )
     
+    admin_review_messages = []
     for admin_chat_id in ADMIN_IDS:
         try:
             if startup.get('logo'):
-                bot.send_photo(admin_chat_id, startup['logo'], caption=text, reply_markup=markup)
+                sent_msg = bot.send_photo(admin_chat_id, startup['logo'], caption=text, reply_markup=markup)
             else:
-                bot.send_message(admin_chat_id, text, reply_markup=markup)
+                sent_msg = bot.send_message(admin_chat_id, text, reply_markup=markup)
+            admin_review_messages.append({"chat_id": admin_chat_id, "message_id": sent_msg.message_id})
         except Exception as e:
             logging.error(f"Adminga xabar yuborishda xatolik ({admin_chat_id}): {e}")
+    if admin_review_messages:
+        try:
+            set_startup_admin_review_messages(startup_id, admin_review_messages)
+        except Exception as e:
+            logging.error(f"Startup review messages saqlashda xatolik: {e}")
     
     # Ma'lumotlarni tozalash
     clear_user_data(user_id)
@@ -2744,13 +2823,12 @@ def admin_approve_startup(call):
     
     try:
         startup_id = call.data.split('_')[2]
-        
-        # Startup holatini yangilash
-        update_startup_status(startup_id, 'active')
-        
-        startup = get_startup(startup_id)
+
+        startup = transition_startup_status(startup_id, 'pending', 'active')
         if not startup:
-            bot.answer_callback_query(call.id, "❌ Startup topilmadi!", show_alert=True)
+            current = get_startup(startup_id)
+            status_text = _startup_status_label((current or {}).get('status'))
+            bot.answer_callback_query(call.id, f"Bu startup allaqachon {status_text}.", show_alert=True)
             return
         
         # Egaga xabar
@@ -2780,6 +2858,7 @@ def admin_approve_startup(call):
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton('🤝 Startupga qo\'shilish', callback_data=f'join_startup_{startup_id}'))
         
+        post_sent = False
         try:
             if startup.get('logo'):
                 sent_message = bot.send_photo(CHANNEL_USERNAME, startup['logo'], caption=channel_text, reply_markup=markup)
@@ -2788,9 +2867,19 @@ def admin_approve_startup(call):
             
             # Post ID sini saqlash
             update_startup_post_id(startup_id, sent_message.message_id)
-            
+            post_sent = True
         except Exception as e:
             logging.error(f"Kanalga post yuborishda xatolik: {e}")
+
+        status_note = "✅ <b>Startup tasdiqlandi.</b>\n\nBu so'rov allaqachon qayta ishlangan."
+        if not post_sent:
+            status_note = "✅ <b>Startup tasdiqlandi.</b>\n\n⚠️ Kanalga yuborishda xatolik bo'ldi."
+        _close_startup_admin_review_messages(
+            startup,
+            status_note,
+            skip_chat_id=call.message.chat.id,
+            skip_message_id=call.message.message_id
+        )
         
         bot.answer_callback_query(call.id, "✅ Startup tasdiqlandi!")
         
@@ -2809,19 +2898,29 @@ def admin_reject_startup(call):
     
     try:
         startup_id = call.data.split('_')[2]
-        update_startup_status(startup_id, 'rejected')
-        
+        startup = transition_startup_status(startup_id, 'pending', 'rejected')
+        if not startup:
+            current = get_startup(startup_id)
+            status_text = _startup_status_label((current or {}).get('status'))
+            bot.answer_callback_query(call.id, f"Bu startup allaqachon {status_text}.", show_alert=True)
+            return
+
         # Egaga xabar
-        startup = get_startup(startup_id)
-        if startup:
-            try:
-                bot.send_message(
-                    startup['owner_id'],
-                    f"❌ <b>Xabar!</b>\n\n"
-                    f"Sizning '<b>{startup['name']}</b>' startupingiz rad etildi."
-                )
-            except:
-                pass
+        try:
+            bot.send_message(
+                startup['owner_id'],
+                f"❌ <b>Xabar!</b>\n\n"
+                f"Sizning '<b>{startup['name']}</b>' startupingiz rad etildi."
+            )
+        except:
+            pass
+
+        _close_startup_admin_review_messages(
+            startup,
+            "❌ <b>Startup rad etildi.</b>\n\nBu so'rov allaqachon qayta ishlangan.",
+            skip_chat_id=call.message.chat.id,
+            skip_message_id=call.message.message_id
+        )
         
         bot.answer_callback_query(call.id, "❌ Startup rad etildi!")
         
@@ -3073,11 +3172,14 @@ def handle_pro_pay_approve(call):
         return
     try:
         payment_id = int(call.data.split('_')[-1])
-        payment = get_payment(payment_id)
-        if not payment or payment.get('status') != 'pending':
-            bot.answer_callback_query(call.id, "To'lov topilmadi yoki tasdiqlangan", show_alert=True)
+        payment = transition_payment_status(payment_id, 'pending', 'approved')
+        if not payment:
+            current = get_payment(payment_id)
+            if not current:
+                bot.answer_callback_query(call.id, "To'lov topilmadi", show_alert=True)
+                return
+            bot.answer_callback_query(call.id, f"Bu to'lov allaqachon {current.get('status', 'qayta ishlangan')}.", show_alert=True)
             return
-        update_payment_status(payment_id, 'approved')
         sub = add_pro_subscription(payment['user_id'], months=1, source='payment', note=f'payment_id:{payment_id}')
         end_at = sub.get('end_at', '')[:10] if sub else ''
         try:
@@ -3088,6 +3190,11 @@ def handle_pro_pay_approve(call):
             )
         except Exception:
             pass
+
+        _close_payment_admin_review_messages(
+            payment,
+            f"✅ <b>To'lov tasdiqlandi.</b>\n\nPayment ID: <b>{payment_id}</b>\nBu so'rov allaqachon qayta ishlangan."
+        )
         bot.answer_callback_query(call.id, "✅ Tasdiqlandi")
     except Exception as e:
         logging.error(f"pro_pay_approve xatosi: {e}")
@@ -3100,11 +3207,14 @@ def handle_pro_pay_reject(call):
         return
     try:
         payment_id = int(call.data.split('_')[-1])
-        payment = get_payment(payment_id)
-        if not payment or payment.get('status') != 'pending':
-            bot.answer_callback_query(call.id, "To'lov topilmadi yoki qayta ishlangan", show_alert=True)
+        payment = transition_payment_status(payment_id, 'pending', 'rejected')
+        if not payment:
+            current = get_payment(payment_id)
+            if not current:
+                bot.answer_callback_query(call.id, "To'lov topilmadi", show_alert=True)
+                return
+            bot.answer_callback_query(call.id, f"Bu to'lov allaqachon {current.get('status', 'qayta ishlangan')}.", show_alert=True)
             return
-        update_payment_status(payment_id, 'rejected')
         try:
             bot.send_message(
                 payment['user_id'],
@@ -3113,6 +3223,11 @@ def handle_pro_pay_reject(call):
             )
         except Exception:
             pass
+
+        _close_payment_admin_review_messages(
+            payment,
+            f"❌ <b>To'lov rad etildi.</b>\n\nPayment ID: <b>{payment_id}</b>\nBu so'rov allaqachon qayta ishlangan."
+        )
         bot.answer_callback_query(call.id, "❌ Rad etildi")
     except Exception as e:
         logging.error(f"pro_pay_reject xatosi: {e}")
