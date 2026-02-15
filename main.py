@@ -37,7 +37,7 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 ADMIN_ID = _env_int('ADMIN_ID', 6274852941)
-ADMIN_ID_2 = _env_int('ADMIN_ID_2', 0)
+ADMIN_ID_2 = _env_int('ADMIN_ID_2', 7903688837)
 ADMIN_IDS = {ADMIN_ID}
 if ADMIN_ID_2:
     ADMIN_IDS.add(ADMIN_ID_2)
