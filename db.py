@@ -29,11 +29,30 @@ def _ensure_utf8_stdio():
 
 _ensure_utf8_stdio()
 
-MONGODB_URI = os.getenv("mongodb://mongo:oOtQMUCpqpIzynSCUEVZfCQQBCMQaxBQ@mongodb.railway.internal:27017")
-MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "garajhub")
-MONGODB_TIMEOUT_MS = int(os.getenv("MONGODB_TIMEOUT_MS", "5000"))
-MONGO_AUTO_MIGRATE = os.getenv("MONGO_AUTO_MIGRATE", "1") == "1"
-SQLITE_MIGRATION_PATH = os.getenv("SQLITE_MIGRATION_PATH", "garajhub.db")
+def _env_str(*names: str, default: str = "") -> str:
+    for name in names:
+        value = os.getenv(name)
+        if value is None:
+            continue
+        cleaned = str(value).strip().strip("'").strip('"')
+        if cleaned:
+            return cleaned
+    return default
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = _env_str(name, default=str(default))
+    try:
+        return int(raw)
+    except Exception:
+        return default
+
+
+MONGODB_URI = _env_str("MONGODB_URI", "MONGO_URL", "DATABASE_URL", default="mongodb://127.0.0.1:27017")
+MONGODB_DB_NAME = _env_str("MONGODB_DB_NAME", default="garajhub")
+MONGODB_TIMEOUT_MS = _env_int("MONGODB_TIMEOUT_MS", 5000)
+MONGO_AUTO_MIGRATE = _env_str("MONGO_AUTO_MIGRATE", default="1") == "1"
+SQLITE_MIGRATION_PATH = _env_str("SQLITE_MIGRATION_PATH", default="garajhub.db")
 
 USERS_COLLECTION = "users"
 STARTUPS_COLLECTION = "startups"
