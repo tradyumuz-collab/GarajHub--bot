@@ -1194,3 +1194,4 @@ def delete_admin(admin_id: int) -> bool:
 
 def update_admin_last_login(admin_id: int):
     _get_db()["admins"].update_one({"id": int(admin_id)}, {"$set": {"last_login": _now_iso()}})
+
