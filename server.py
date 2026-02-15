@@ -260,51 +260,45 @@ def _query_user_counts_by_day(start_date):
     conn = get_connection()
     if not conn:
         return {}
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT date(joined_at) as day, COUNT(*) as count
-        FROM users
-        WHERE date(joined_at) >= ?
-        GROUP BY day
-        ORDER BY day
-    ''', (start_date,))
-    rows = cursor.fetchall()
-    conn.close()
+    try:
+        start_dt = datetime.fromisoformat(str(start_date))
+    except Exception:
+        return {}
+
     result = {}
+    rows = conn["users"].find({}, {"joined_at": 1})
     for row in rows:
-        try:
-            day = row['day']
-            count = row['count']
-        except Exception:
-            day = row[0]
-            count = row[1]
-        result[str(day)] = int(count)
-    return result
+        joined_at = row.get("joined_at")
+        dt = parse_datetime_flexible(joined_at)
+        if not dt:
+            continue
+        if dt.date() < start_dt.date():
+            continue
+        key = dt.date().isoformat()
+        result[key] = result.get(key, 0) + 1
+    return dict(sorted(result.items(), key=lambda item: item[0]))
 
 def _query_user_counts_by_month(start_month_date):
     conn = get_connection()
     if not conn:
         return {}
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT strftime('%Y-%m', joined_at) as month, COUNT(*) as count
-        FROM users
-        WHERE date(joined_at) >= ?
-        GROUP BY month
-        ORDER BY month
-    ''', (start_month_date,))
-    rows = cursor.fetchall()
-    conn.close()
+    try:
+        start_dt = datetime.fromisoformat(str(start_month_date))
+    except Exception:
+        return {}
+
     result = {}
+    rows = conn["users"].find({}, {"joined_at": 1})
     for row in rows:
-        try:
-            month = row['month']
-            count = row['count']
-        except Exception:
-            month = row[0]
-            count = row[1]
-        result[str(month)] = int(count)
-    return result
+        joined_at = row.get("joined_at")
+        dt = parse_datetime_flexible(joined_at)
+        if not dt:
+            continue
+        if dt.date() < start_dt.date():
+            continue
+        key = dt.strftime("%Y-%m")
+        result[key] = result.get(key, 0) + 1
+    return dict(sorted(result.items(), key=lambda item: item[0]))
 
 def _build_user_growth_chart(period: str):
     now = datetime.now()
@@ -1517,8 +1511,9 @@ if __name__ == '__main__':
     print(f"="*50)
     print(f"🌐 URL: http://localhost:{port}")
     print(f"🤖 Bot status: {'✅ Online' if BOT_AVAILABLE else '❌ Offline'}")
-    print(f"🗄️ Database: {'✅ SQLite (garajhub.db)' if DB_AVAILABLE else '❌ Offline'}")
+    print(f"🗄️ Database: {'✅ MongoDB' if DB_AVAILABLE else '❌ Offline'}")
     print(f"🔑 Admin login: admin / admin123")
+    print(f"🔑 Admin2 login: admin2 / admin2123")
     print(f"🔧 Moderator login: moderator / moderator123")
     print(f"📊 Real data: ✅ Ha")
     print(f"🚫 Demo mode: ❌ Yo'q")

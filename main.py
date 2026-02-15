@@ -28,10 +28,28 @@ load_dotenv()
 # Bot tokenini environmentdan olish
 BOT_TOKEN = os.getenv('BOT_TOKEN', '8545746982:AAFNOX6afGJ9ECRP5neHzinrM4DcT2seqeI')
 CHANNEL_USERNAME = os.getenv('CHANNEL_USERNAME', '@GarajHub_uz')
-ADMIN_ID = int(os.getenv('ADMIN_ID', '6274852941'))
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name, str(default))
+    try:
+        return int(str(raw).strip().strip("'").strip('"'))
+    except Exception:
+        return default
+
+ADMIN_ID = _env_int('ADMIN_ID', 6274852941)
+ADMIN_ID_2 = _env_int('ADMIN_ID_2', 0)
+ADMIN_IDS = {ADMIN_ID}
+if ADMIN_ID_2:
+    ADMIN_IDS.add(ADMIN_ID_2)
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+def is_admin_user(user_id: int) -> bool:
+    try:
+        return int(user_id) in ADMIN_IDS
+    except Exception:
+        return False
 
 # HTML belgilarni tozalash funksiyasi
 def escape_html(text):
@@ -161,7 +179,7 @@ def create_main_menu(user_id: int):
         buttons.append(KeyboardButton('🤝 Referal'))
     markup.add(*buttons)
     
-    if user_id == ADMIN_ID:
+    if is_admin_user(user_id):
         markup.add(KeyboardButton('⚙️ Admin panel'))
     
     return markup
@@ -392,10 +410,11 @@ def handle_photo_messages(message):
         InlineKeyboardButton('❌ Rad etish', callback_data=f'pro_pay_reject_{payment_id}')
     )
 
-    try:
-        bot.send_photo(ADMIN_ID, receipt_file_id, caption=text, reply_markup=markup)
-    except Exception as e:
-        logging.error(f"Admin payment notify xatosi: {e}")
+    for admin_chat_id in ADMIN_IDS:
+        try:
+            bot.send_photo(admin_chat_id, receipt_file_id, caption=text, reply_markup=markup)
+        except Exception as e:
+            logging.error(f"Admin payment notify xatosi ({admin_chat_id}): {e}")
 
     bot.send_message(
         message.chat.id,
@@ -1852,13 +1871,14 @@ def process_startup_max_members(message):
         InlineKeyboardButton('❌ Rad etish', callback_data=f'admin_reject_{startup_id}')
     )
     
-    try:
-        if startup.get('logo'):
-            bot.send_photo(ADMIN_ID, startup['logo'], caption=text, reply_markup=markup)
-        else:
-            bot.send_message(ADMIN_ID, text, reply_markup=markup)
-    except Exception as e:
-        logging.error(f"Adminga xabar yuborishda xatolik: {e}")
+    for admin_chat_id in ADMIN_IDS:
+        try:
+            if startup.get('logo'):
+                bot.send_photo(admin_chat_id, startup['logo'], caption=text, reply_markup=markup)
+            else:
+                bot.send_message(admin_chat_id, text, reply_markup=markup)
+        except Exception as e:
+            logging.error(f"Adminga xabar yuborishda xatolik ({admin_chat_id}): {e}")
     
     # Ma'lumotlarni tozalash
     clear_user_data(user_id)
@@ -2440,7 +2460,7 @@ def handle_back_to_joined_list(call):
         bot.answer_callback_query(call.id, "⚠️ Xatolik yuz berdi!", show_alert=True)
 
 # ⚙️ ADMIN PANEL
-@bot.message_handler(func=lambda message: message.text == '⚙️ Admin panel' and message.chat.id == ADMIN_ID)
+@bot.message_handler(func=lambda message: message.text == '⚙️ Admin panel' and is_admin_user(message.chat.id))
 def admin_panel(message):
     user_id = message.from_user.id
     set_user_state(user_id, 'in_admin_panel')
@@ -2470,7 +2490,7 @@ def admin_panel(message):
     
     bot.send_message(message.chat.id, welcome_text, reply_markup=markup)
 
-@bot.message_handler(func=lambda message: message.text == '📊 Dashboard' and message.chat.id == ADMIN_ID)
+@bot.message_handler(func=lambda message: message.text == '📊 Dashboard' and is_admin_user(message.chat.id))
 def admin_dashboard(message):
     stats = get_statistics()
     recent_users = get_recent_users(5)
@@ -2517,7 +2537,7 @@ def admin_dashboard(message):
     
     bot.send_message(message.chat.id, dashboard_text, reply_markup=markup)
 
-@bot.message_handler(func=lambda message: message.text == '⭐ Pro sozlamalar' and message.chat.id == ADMIN_ID)
+@bot.message_handler(func=lambda message: message.text == '⭐ Pro sozlamalar' and is_admin_user(message.chat.id))
 def admin_pro_settings(message):
     settings = get_pro_settings()
     status = "✅ Yoqilgan" if settings.get('pro_enabled', 0) else "❌ O'chirilgan"
@@ -2540,7 +2560,7 @@ def admin_pro_settings(message):
     )
     bot.send_message(message.chat.id, text, reply_markup=markup)
 
-@bot.message_handler(func=lambda message: message.text == '🧾 Pro to\'lovlar' and message.chat.id == ADMIN_ID)
+@bot.message_handler(func=lambda message: message.text == '🧾 Pro to\'lovlar' and is_admin_user(message.chat.id))
 def admin_pro_payments(message):
     pending = get_pending_payments(10)
     if not pending:
@@ -2568,7 +2588,7 @@ def admin_pro_payments(message):
         )
         bot.send_message(message.chat.id, text, reply_markup=markup)
 
-@bot.message_handler(func=lambda message: message.text == '🚀 Startaplar' and message.chat.id == ADMIN_ID)
+@bot.message_handler(func=lambda message: message.text == '🚀 Startaplar' and is_admin_user(message.chat.id))
 def admin_startups_menu(message):
     stats = get_statistics()
     
@@ -2594,7 +2614,7 @@ def admin_startups_menu(message):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('pending_startups_'))
 def show_pending_startups(call):
-    if call.from_user.id != ADMIN_ID:
+    if not is_admin_user(call.from_user.id):
         bot.answer_callback_query(call.id, "❌ Ruxsat yo'q!", show_alert=True)
         return
     
@@ -2644,7 +2664,7 @@ def show_pending_startups(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('admin_view_startup_'))
 def admin_view_startup_details(call):
-    if call.from_user.id != ADMIN_ID:
+    if not is_admin_user(call.from_user.id):
         bot.answer_callback_query(call.id, "❌ Ruxsat yo'q!", show_alert=True)
         return
     
@@ -2718,7 +2738,7 @@ def admin_view_startup_details(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('admin_approve_'))
 def admin_approve_startup(call):
-    if call.from_user.id != ADMIN_ID:
+    if not is_admin_user(call.from_user.id):
         bot.answer_callback_query(call.id, "❌ Ruxsat yo'q!", show_alert=True)
         return
     
@@ -2783,7 +2803,7 @@ def admin_approve_startup(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('admin_reject_'))
 def admin_reject_startup(call):
-    if call.from_user.id != ADMIN_ID:
+    if not is_admin_user(call.from_user.id):
         bot.answer_callback_query(call.id, "❌ Ruxsat yo'q!", show_alert=True)
         return
     
@@ -2812,7 +2832,7 @@ def admin_reject_startup(call):
         logging.error(f"Admin reject xatosi: {e}")
         bot.answer_callback_query(call.id, "⚠️ Xatolik yuz berdi!", show_alert=True)
 
-@bot.message_handler(func=lambda message: message.text == '👥 Foydalanuvchilar' and message.chat.id == ADMIN_ID)
+@bot.message_handler(func=lambda message: message.text == '👥 Foydalanuvchilar' and is_admin_user(message.chat.id))
 def admin_users(message):
     stats = get_statistics()
     recent_users = get_recent_users(10)
@@ -2848,7 +2868,7 @@ def admin_users(message):
     
     bot.send_message(message.chat.id, text, reply_markup=markup)
 
-@bot.message_handler(func=lambda message: message.text == '📢 Xabar yuborish' and message.chat.id == ADMIN_ID)
+@bot.message_handler(func=lambda message: message.text == '📢 Xabar yuborish' and is_admin_user(message.chat.id))
 def broadcast_message_start(message):
     user_id = message.from_user.id
     set_user_state(user_id, 'broadcasting_message')
@@ -2945,7 +2965,7 @@ def handle_users_stats(call):
 
 @bot.callback_query_handler(func=lambda call: call.data == 'pro_toggle')
 def handle_pro_toggle(call):
-    if call.message.chat.id != ADMIN_ID:
+    if not is_admin_user(call.message.chat.id):
         bot.answer_callback_query(call.id, "❌ Ruxsat yo'q!", show_alert=True)
         return
     settings = get_pro_settings()
@@ -2956,7 +2976,7 @@ def handle_pro_toggle(call):
 
 @bot.callback_query_handler(func=lambda call: call.data == 'pro_edit_price')
 def handle_pro_edit_price(call):
-    if call.message.chat.id != ADMIN_ID:
+    if not is_admin_user(call.message.chat.id):
         bot.answer_callback_query(call.id, "❌ Ruxsat yo'q!", show_alert=True)
         return
     set_user_state(call.from_user.id, 'admin_edit_pro_price')
@@ -2966,7 +2986,7 @@ def handle_pro_edit_price(call):
 
 @bot.callback_query_handler(func=lambda call: call.data == 'pro_edit_card')
 def handle_pro_edit_card(call):
-    if call.message.chat.id != ADMIN_ID:
+    if not is_admin_user(call.message.chat.id):
         bot.answer_callback_query(call.id, "❌ Ruxsat yo'q!", show_alert=True)
         return
     set_user_state(call.from_user.id, 'admin_edit_pro_card')
@@ -3011,7 +3031,7 @@ def process_admin_pro_card(message):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('pro_pay_view_'))
 def handle_pro_pay_view(call):
-    if call.message.chat.id != ADMIN_ID:
+    if not is_admin_user(call.message.chat.id):
         bot.answer_callback_query(call.id, "❌ Ruxsat yo'q!", show_alert=True)
         return
     try:
@@ -3040,7 +3060,7 @@ def handle_pro_pay_view(call):
             InlineKeyboardButton('✅ Tasdiqlash', callback_data=f'pro_pay_approve_{payment_id}'),
             InlineKeyboardButton('❌ Rad etish', callback_data=f'pro_pay_reject_{payment_id}')
         )
-        bot.send_photo(ADMIN_ID, receipt_id, caption=text, reply_markup=markup)
+        bot.send_photo(call.message.chat.id, receipt_id, caption=text, reply_markup=markup)
         bot.answer_callback_query(call.id)
     except Exception as e:
         logging.error(f"pro_pay_view xatosi: {e}")
@@ -3048,7 +3068,7 @@ def handle_pro_pay_view(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('pro_pay_approve_'))
 def handle_pro_pay_approve(call):
-    if call.message.chat.id != ADMIN_ID:
+    if not is_admin_user(call.message.chat.id):
         bot.answer_callback_query(call.id, "❌ Ruxsat yo'q!", show_alert=True)
         return
     try:
@@ -3075,7 +3095,7 @@ def handle_pro_pay_approve(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('pro_pay_reject_'))
 def handle_pro_pay_reject(call):
-    if call.message.chat.id != ADMIN_ID:
+    if not is_admin_user(call.message.chat.id):
         bot.answer_callback_query(call.id, "❌ Ruxsat yo'q!", show_alert=True)
         return
     try:
@@ -3321,7 +3341,7 @@ def handle_all_messages(message):
             return
         
         # Agar admin bo'lsa
-        if user_id == ADMIN_ID:
+        if is_admin_user(user_id):
             # Admin menyusi tugmalari allaqachon handlerlari bor
             return
         
@@ -3413,14 +3433,14 @@ if __name__ == '__main__':
     init_db()
     print("=" * 60)
     print("🚀 GarajHub Bot ishga tushdi...")
-    print(f"👨‍💼 Admin ID: {ADMIN_ID}")
+    print(f"👨‍💼 Admin IDs: {', '.join(str(x) for x in sorted(ADMIN_IDS))}")
     print(f"📢 Kanal: {CHANNEL_USERNAME}")
     try:
         bot_info = bot.get_me()
         print(f"🤖 Bot: @{bot_info.username}")
     except:
         print("🤖 Bot: (get_me() failed)")
-    print("🗄️ Database: SQLite (garajhub.db)")
+    print("🗄️ Database: MongoDB")
     print("=" * 60)
     
     while True:

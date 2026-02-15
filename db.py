@@ -1,12 +1,21 @@
-# db.py - SQLite versiya
-import sqlite3
-import os
-import sys
-from datetime import datetime
-from typing import Dict, List, Optional, Tuple
-import json
+# db.py - MongoDB version
 import calendar
+import os
+import sqlite3
+import sys
+from collections import defaultdict
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
+
+from pymongo import ASCENDING, DESCENDING, MongoClient, ReturnDocument
+from pymongo.collection import Collection
+from pymongo.database import Database
+from pymongo.errors import DuplicateKeyError
+from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash
+
+load_dotenv()
+
 
 def _ensure_utf8_stdio():
     for stream_name in ("stdout", "stderr"):
@@ -17,232 +26,565 @@ def _ensure_utf8_stdio():
             except Exception:
                 pass
 
+
 _ensure_utf8_stdio()
 
-DB_PATH = 'garajhub.db'
+MONGODB_URI = os.getenv("mongodb://mongo:oOtQMUCpqpIzynSCUEVZfCQQBCMQaxBQ@mongodb.railway.internal:27017")
+MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "garajhub")
+MONGODB_TIMEOUT_MS = int(os.getenv("MONGODB_TIMEOUT_MS", "5000"))
+MONGO_AUTO_MIGRATE = os.getenv("MONGO_AUTO_MIGRATE", "1") == "1"
+SQLITE_MIGRATION_PATH = os.getenv("SQLITE_MIGRATION_PATH", "garajhub.db")
 
-def get_connection():
-    """Database connectionini olish"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+USERS_COLLECTION = "users"
+STARTUPS_COLLECTION = "startups"
+STARTUP_MEMBERS_COLLECTION = "startup_members"
 
-def init_db():
-    """Ma'lumotlar bazasini yaratish"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    # USERS jadvali
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            username TEXT,
-            first_name TEXT,
-            last_name TEXT,
-            phone TEXT,
-            gender TEXT,
-            birth_date TEXT,
-            specialization TEXT,
-            experience TEXT,
-            bio TEXT,
-            joined_at TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # STARTUPS jadvali
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS startups (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            description TEXT NOT NULL,
-            logo TEXT,
-            group_link TEXT NOT NULL,
-            owner_id INTEGER NOT NULL,
-            required_skills TEXT,
-            category TEXT DEFAULT 'Boshqa',
-            max_members INTEGER DEFAULT 10,
-            status TEXT DEFAULT 'pending',
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            started_at TEXT,
-            results TEXT,
-            channel_post_id INTEGER,
-            current_members INTEGER DEFAULT 0,
-            FOREIGN KEY (owner_id) REFERENCES users(user_id)
-        )
-    ''')
-    
-    # STARTUP_MEMBERS jadvali
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS startup_members (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            startup_id INTEGER NOT NULL,
-            user_id INTEGER NOT NULL,
-            status TEXT DEFAULT 'pending',
-            joined_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (startup_id) REFERENCES startups(id),
-            FOREIGN KEY (user_id) REFERENCES users(user_id)
-        )
-    ''')
+_mongo_client: Optional[MongoClient] = None
+_db: Optional[Database] = None
 
-    # PRO SETTINGS jadvali (1 ta satr)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS pro_settings (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            pro_enabled INTEGER DEFAULT 1,
-            pro_price INTEGER DEFAULT 100000,
-            card_number TEXT DEFAULT ''
-        )
-    ''')
+_COUNTER_CONFIG: Dict[str, Tuple[str, str]] = {
+    "startups": (STARTUPS_COLLECTION, "id"),
+    "startup_members": (STARTUP_MEMBERS_COLLECTION, "id"),
+    "pro_subscriptions": ("pro_subscriptions", "id"),
+    "pro_payments": ("pro_payments", "id"),
+    "referrals": ("referrals", "id"),
+    "referral_rewards": ("referral_rewards", "id"),
+    "admins": ("admins", "id"),
+}
 
-    # PRO SUBSCRIPTIONS jadvali
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS pro_subscriptions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            start_at TEXT NOT NULL,
-            end_at TEXT NOT NULL,
-            status TEXT DEFAULT 'active',
-            source TEXT DEFAULT 'payment',
-            note TEXT,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(user_id)
-        )
-    ''')
+_ALLOWED_USER_FIELDS = {
+    "username",
+    "first_name",
+    "last_name",
+    "phone",
+    "gender",
+    "birth_date",
+    "specialization",
+    "experience",
+    "bio",
+    "joined_at",
+}
 
-    # PRO PAYMENTS jadvali
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS pro_payments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            amount INTEGER NOT NULL,
-            card_number TEXT NOT NULL,
-            receipt_file_id TEXT NOT NULL,
-            status TEXT DEFAULT 'pending',
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(user_id)
-        )
-    ''')
 
-    # REFERRALS jadvali
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS referrals (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            inviter_id INTEGER NOT NULL,
-            invited_id INTEGER NOT NULL UNIQUE,
-            status TEXT DEFAULT 'pending',
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            confirmed_at TEXT,
-            FOREIGN KEY (inviter_id) REFERENCES users(user_id),
-            FOREIGN KEY (invited_id) REFERENCES users(user_id)
-        )
-    ''')
+def _now_iso() -> str:
+    return datetime.now().isoformat()
 
-    # REFERRAL REWARDS jadvali
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS referral_rewards (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            inviter_id INTEGER NOT NULL,
-            months INTEGER DEFAULT 1,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (inviter_id) REFERENCES users(user_id)
-        )
-    ''')
 
-    # Default pro settings
-    cursor.execute('''
-        INSERT OR IGNORE INTO pro_settings (id, pro_enabled, pro_price, card_number)
-        VALUES (1, 1, 100000, '')
-    ''')
-
-    # ADMINS jadvali
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS admins (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            full_name TEXT,
-            email TEXT,
-            role TEXT DEFAULT 'admin',
-            last_login TEXT
-        )
-    ''')
-
-    # APP SETTINGS jadvali (1 ta satr)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS app_settings (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            site_name TEXT DEFAULT 'GarajHub',
-            admin_email TEXT DEFAULT 'admin@garajhub.uz',
-            timezone TEXT DEFAULT 'Asia/Tashkent'
-        )
-    ''')
-    cursor.execute('''
-        INSERT OR IGNORE INTO app_settings (id, site_name, admin_email, timezone)
-        VALUES (1, 'GarajHub', 'admin@garajhub.uz', 'Asia/Tashkent')
-    ''')
-
-    # Default adminlar
-    cursor.execute('''
-        INSERT OR IGNORE INTO admins (username, password_hash, full_name, email, role)
-        VALUES (?, ?, ?, ?, ?)
-    ''', ('admin', generate_password_hash('admin123'), 'Super Admin', 'admin@garajhub.uz', 'superadmin'))
-    cursor.execute('''
-        INSERT OR IGNORE INTO admins (username, password_hash, full_name, email, role)
-        VALUES (?, ?, ?, ?, ?)
-    ''', ('moderator', generate_password_hash('moderator123'), 'Moderator', 'moderator@garajhub.uz', 'moderator'))
-
-    # Existing DB migrate: add missing columns for pro_payments
+def _to_int(value: Any, default: Optional[int] = 0) -> Optional[int]:
     try:
-        cursor.execute("PRAGMA table_info(pro_payments)")
-        cols = [row[1] for row in cursor.fetchall()]
-        if 'card_number' not in cols:
-            cursor.execute("ALTER TABLE pro_payments ADD COLUMN card_number TEXT DEFAULT ''")
-        if 'receipt_file_id' not in cols:
-            cursor.execute("ALTER TABLE pro_payments ADD COLUMN receipt_file_id TEXT DEFAULT ''")
+        if value is None:
+            return default
+        return int(value)
+    except Exception:
+        return default
+
+
+def _parse_datetime(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value
+    if value is None:
+        return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+
+    try:
+        return datetime.fromisoformat(text)
     except Exception:
         pass
-    
-    conn.commit()
-    conn.close()
-    print("✅ Database initialized successfully!")
+
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, fmt)
+        except Exception:
+            continue
+    return None
+
+
+def _without_mongo_id(doc: Optional[Dict]) -> Optional[Dict]:
+    if not doc:
+        return None
+    result = dict(doc)
+    result.pop("_id", None)
+    return result
+
+
+def _normalize_startup(doc: Optional[Dict]) -> Optional[Dict]:
+    data = _without_mongo_id(doc)
+    if not data:
+        return None
+    startup_id = _to_int(data.get("id"), None)
+    if startup_id is None and doc is not None:
+        startup_id = _to_int(doc.get("_id"), 0)
+    if startup_id is None:
+        startup_id = 0
+    data["id"] = startup_id
+    data["_id"] = str(startup_id)
+    return data
+
+
+def _get_client() -> MongoClient:
+    global _mongo_client
+    if _mongo_client is None:
+        _mongo_client = MongoClient(
+            MONGODB_URI,
+            serverSelectionTimeoutMS=MONGODB_TIMEOUT_MS,
+        )
+        _mongo_client.admin.command("ping")
+    return _mongo_client
+
+
+def _get_db() -> Database:
+    global _db
+    if _db is None:
+        _db = _get_client()[MONGODB_DB_NAME]
+    return _db
+
+
+def get_connection():
+    """MongoDB db objectini qaytaradi."""
+    return _get_db()
+
+
+def _next_sequence(counter_name: str) -> int:
+    db = _get_db()
+    row = db.counters.find_one_and_update(
+        {"_id": counter_name},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    return int(row.get("seq", 1))
+
+
+def _max_numeric_field(collection: Collection, field_name: str) -> int:
+    row = collection.find_one(
+        {field_name: {"$type": "number"}},
+        sort=[(field_name, DESCENDING)],
+        projection={field_name: 1},
+    )
+    if not row:
+        return 0
+    return _to_int(row.get(field_name), 0) or 0
+
+
+def _ensure_counter_seed(counter_name: str, value: int):
+    db = _get_db()
+    db.counters.update_one({"_id": counter_name}, {"$setOnInsert": {"seq": 0}}, upsert=True)
+    db.counters.update_one({"_id": counter_name}, {"$max": {"seq": int(value)}})
+
+
+def _sync_counters():
+    db = _get_db()
+    for counter_name, (collection_name, field_name) in _COUNTER_CONFIG.items():
+        max_value = _max_numeric_field(db[collection_name], field_name)
+        _ensure_counter_seed(counter_name, max_value)
+
+
+def _ensure_indexes():
+    db = _get_db()
+
+    db[USERS_COLLECTION].create_index([("user_id", ASCENDING)], unique=True)
+    db[USERS_COLLECTION].create_index([("joined_at", DESCENDING)])
+
+    db[STARTUPS_COLLECTION].create_index([("id", ASCENDING)], unique=True)
+    db[STARTUPS_COLLECTION].create_index([("owner_id", ASCENDING)])
+    db[STARTUPS_COLLECTION].create_index([("status", ASCENDING), ("created_at", DESCENDING)])
+    db[STARTUPS_COLLECTION].create_index([("category", ASCENDING), ("status", ASCENDING)])
+    db[STARTUPS_COLLECTION].create_index(
+        [("channel_post_id", ASCENDING)],
+        unique=True,
+        sparse=True,
+    )
+
+    db[STARTUP_MEMBERS_COLLECTION].create_index([("id", ASCENDING)], unique=True)
+    db[STARTUP_MEMBERS_COLLECTION].create_index(
+        [("startup_id", ASCENDING), ("status", ASCENDING), ("joined_at", DESCENDING)]
+    )
+    db[STARTUP_MEMBERS_COLLECTION].create_index([("user_id", ASCENDING), ("status", ASCENDING)])
+
+    db["pro_subscriptions"].create_index([("id", ASCENDING)], unique=True)
+    db["pro_subscriptions"].create_index([("user_id", ASCENDING), ("status", ASCENDING)])
+    db["pro_subscriptions"].create_index([("end_at", ASCENDING)])
+
+    db["pro_payments"].create_index([("id", ASCENDING)], unique=True)
+    db["pro_payments"].create_index([("status", ASCENDING), ("created_at", DESCENDING)])
+
+    db["referrals"].create_index([("id", ASCENDING)], unique=True)
+    db["referrals"].create_index([("invited_id", ASCENDING)], unique=True)
+    db["referrals"].create_index([("inviter_id", ASCENDING), ("status", ASCENDING)])
+
+    db["referral_rewards"].create_index([("id", ASCENDING)], unique=True)
+    db["referral_rewards"].create_index([("inviter_id", ASCENDING), ("created_at", DESCENDING)])
+
+    db["admins"].create_index([("id", ASCENDING)], unique=True)
+    db["admins"].create_index([("username", ASCENDING)], unique=True)
+
+
+def _table_exists(cursor: sqlite3.Cursor, table_name: str) -> bool:
+    cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
+        (table_name,),
+    )
+    return cursor.fetchone() is not None
+
+
+def _collection_has_data() -> bool:
+    db = _get_db()
+    for col in (USERS_COLLECTION, STARTUPS_COLLECTION, STARTUP_MEMBERS_COLLECTION, "admins"):
+        if db[col].estimated_document_count() > 0:
+            return True
+    return False
+
+def _migrate_sqlite_to_mongodb():
+    if not MONGO_AUTO_MIGRATE:
+        return
+    if _collection_has_data():
+        return
+    if not os.path.exists(SQLITE_MIGRATION_PATH):
+        return
+
+    try:
+        conn = sqlite3.connect(SQLITE_MIGRATION_PATH)
+        conn.row_factory = sqlite3.Row
+    except Exception:
+        return
+
+    db = _get_db()
+    migrated = defaultdict(int)
+
+    try:
+        cursor = conn.cursor()
+
+        if _table_exists(cursor, "users"):
+            cursor.execute("SELECT * FROM users")
+            for row in cursor.fetchall():
+                data = dict(row)
+                user_id = _to_int(data.get("user_id"), None)
+                if user_id is None:
+                    continue
+                doc = {
+                    "_id": user_id,
+                    "user_id": user_id,
+                    "username": data.get("username") or "",
+                    "first_name": data.get("first_name") or "",
+                    "last_name": data.get("last_name") or "",
+                    "phone": data.get("phone") or "",
+                    "gender": data.get("gender") or "",
+                    "birth_date": data.get("birth_date") or "",
+                    "specialization": data.get("specialization") or "",
+                    "experience": data.get("experience") or "",
+                    "bio": data.get("bio") or "",
+                    "joined_at": data.get("joined_at") or _now_iso(),
+                }
+                db[USERS_COLLECTION].replace_one({"_id": user_id}, doc, upsert=True)
+                migrated["users"] += 1
+
+        if _table_exists(cursor, "startups"):
+            cursor.execute("SELECT * FROM startups")
+            for row in cursor.fetchall():
+                data = dict(row)
+                startup_id = _to_int(data.get("id"), None)
+                if startup_id is None:
+                    continue
+                doc = {
+                    "_id": startup_id,
+                    "id": startup_id,
+                    "name": data.get("name") or "",
+                    "description": data.get("description") or "",
+                    "logo": data.get("logo"),
+                    "group_link": data.get("group_link") or "",
+                    "owner_id": _to_int(data.get("owner_id"), 0) or 0,
+                    "required_skills": data.get("required_skills") or "",
+                    "category": data.get("category") or "Boshqa",
+                    "max_members": _to_int(data.get("max_members"), 10) or 10,
+                    "status": data.get("status") or "pending",
+                    "created_at": data.get("created_at") or _now_iso(),
+                    "started_at": data.get("started_at"),
+                    "results": data.get("results"),
+                    "channel_post_id": _to_int(data.get("channel_post_id"), None),
+                    "current_members": _to_int(data.get("current_members"), 0) or 0,
+                }
+                db[STARTUPS_COLLECTION].replace_one({"_id": startup_id}, doc, upsert=True)
+                migrated["startups"] += 1
+
+        if _table_exists(cursor, "startup_members"):
+            cursor.execute("SELECT * FROM startup_members")
+            for row in cursor.fetchall():
+                data = dict(row)
+                member_id = _to_int(data.get("id"), None)
+                if member_id is None:
+                    continue
+                doc = {
+                    "_id": member_id,
+                    "id": member_id,
+                    "startup_id": _to_int(data.get("startup_id"), 0) or 0,
+                    "user_id": _to_int(data.get("user_id"), 0) or 0,
+                    "status": data.get("status") or "pending",
+                    "joined_at": data.get("joined_at") or _now_iso(),
+                }
+                db[STARTUP_MEMBERS_COLLECTION].replace_one({"_id": member_id}, doc, upsert=True)
+                migrated["startup_members"] += 1
+
+        if _table_exists(cursor, "pro_settings"):
+            cursor.execute("SELECT * FROM pro_settings WHERE id = 1")
+            row = cursor.fetchone()
+            if row:
+                data = dict(row)
+                doc = {
+                    "_id": 1,
+                    "id": 1,
+                    "pro_enabled": _to_int(data.get("pro_enabled"), 1) or 1,
+                    "pro_price": _to_int(data.get("pro_price"), 100000) or 100000,
+                    "card_number": data.get("card_number") or "",
+                }
+                db["pro_settings"].replace_one({"_id": 1}, doc, upsert=True)
+                migrated["pro_settings"] += 1
+
+        if _table_exists(cursor, "pro_subscriptions"):
+            cursor.execute("SELECT * FROM pro_subscriptions")
+            for row in cursor.fetchall():
+                data = dict(row)
+                sub_id = _to_int(data.get("id"), None)
+                if sub_id is None:
+                    continue
+                doc = {
+                    "_id": sub_id,
+                    "id": sub_id,
+                    "user_id": _to_int(data.get("user_id"), 0) or 0,
+                    "start_at": data.get("start_at") or _now_iso(),
+                    "end_at": data.get("end_at") or _now_iso(),
+                    "status": data.get("status") or "active",
+                    "source": data.get("source") or "payment",
+                    "note": data.get("note") or "",
+                    "created_at": data.get("created_at") or _now_iso(),
+                }
+                db["pro_subscriptions"].replace_one({"_id": sub_id}, doc, upsert=True)
+                migrated["pro_subscriptions"] += 1
+
+        if _table_exists(cursor, "pro_payments"):
+            cursor.execute("SELECT * FROM pro_payments")
+            for row in cursor.fetchall():
+                data = dict(row)
+                payment_id = _to_int(data.get("id"), None)
+                if payment_id is None:
+                    continue
+                doc = {
+                    "_id": payment_id,
+                    "id": payment_id,
+                    "user_id": _to_int(data.get("user_id"), 0) or 0,
+                    "amount": _to_int(data.get("amount"), 0) or 0,
+                    "card_number": data.get("card_number") or "",
+                    "receipt_file_id": data.get("receipt_file_id") or "",
+                    "status": data.get("status") or "pending",
+                    "created_at": data.get("created_at") or _now_iso(),
+                }
+                db["pro_payments"].replace_one({"_id": payment_id}, doc, upsert=True)
+                migrated["pro_payments"] += 1
+
+        if _table_exists(cursor, "referrals"):
+            cursor.execute("SELECT * FROM referrals")
+            for row in cursor.fetchall():
+                data = dict(row)
+                referral_id = _to_int(data.get("id"), None)
+                if referral_id is None:
+                    continue
+                doc = {
+                    "_id": referral_id,
+                    "id": referral_id,
+                    "inviter_id": _to_int(data.get("inviter_id"), 0) or 0,
+                    "invited_id": _to_int(data.get("invited_id"), 0) or 0,
+                    "status": data.get("status") or "pending",
+                    "created_at": data.get("created_at") or _now_iso(),
+                    "confirmed_at": data.get("confirmed_at"),
+                }
+                db["referrals"].replace_one({"_id": referral_id}, doc, upsert=True)
+                migrated["referrals"] += 1
+
+        if _table_exists(cursor, "referral_rewards"):
+            cursor.execute("SELECT * FROM referral_rewards")
+            for row in cursor.fetchall():
+                data = dict(row)
+                reward_id = _to_int(data.get("id"), None)
+                if reward_id is None:
+                    continue
+                doc = {
+                    "_id": reward_id,
+                    "id": reward_id,
+                    "inviter_id": _to_int(data.get("inviter_id"), 0) or 0,
+                    "months": _to_int(data.get("months"), 1) or 1,
+                    "created_at": data.get("created_at") or _now_iso(),
+                }
+                db["referral_rewards"].replace_one({"_id": reward_id}, doc, upsert=True)
+                migrated["referral_rewards"] += 1
+
+        if _table_exists(cursor, "admins"):
+            cursor.execute("SELECT * FROM admins")
+            for row in cursor.fetchall():
+                data = dict(row)
+                admin_id = _to_int(data.get("id"), None)
+                if admin_id is None:
+                    continue
+                doc = {
+                    "_id": admin_id,
+                    "id": admin_id,
+                    "username": data.get("username") or "",
+                    "password_hash": data.get("password_hash") or "",
+                    "full_name": data.get("full_name") or "",
+                    "email": data.get("email") or "",
+                    "role": data.get("role") or "admin",
+                    "last_login": data.get("last_login"),
+                }
+                db["admins"].replace_one({"_id": admin_id}, doc, upsert=True)
+                migrated["admins"] += 1
+
+        if _table_exists(cursor, "app_settings"):
+            cursor.execute("SELECT * FROM app_settings WHERE id = 1")
+            row = cursor.fetchone()
+            if row:
+                data = dict(row)
+                doc = {
+                    "_id": 1,
+                    "id": 1,
+                    "site_name": data.get("site_name") or "GarajHub",
+                    "admin_email": data.get("admin_email") or "admin@garajhub.uz",
+                    "timezone": data.get("timezone") or "Asia/Tashkent",
+                }
+                db["app_settings"].replace_one({"_id": 1}, doc, upsert=True)
+                migrated["app_settings"] += 1
+    finally:
+        conn.close()
+
+    if migrated:
+        print(f"SQLite -> MongoDB migration completed: {dict(migrated)}")
+
+
+def _ensure_defaults():
+    db = _get_db()
+
+    db["pro_settings"].update_one(
+        {"_id": 1},
+        {
+            "$setOnInsert": {
+                "_id": 1,
+                "id": 1,
+                "pro_enabled": 1,
+                "pro_price": 100000,
+                "card_number": "",
+            }
+        },
+        upsert=True,
+    )
+
+    db["app_settings"].update_one(
+        {"_id": 1},
+        {
+            "$setOnInsert": {
+                "_id": 1,
+                "id": 1,
+                "site_name": "GarajHub",
+                "admin_email": "admin@garajhub.uz",
+                "timezone": "Asia/Tashkent",
+            }
+        },
+        upsert=True,
+    )
+
+    if not db["admins"].find_one({"username": "admin"}):
+        admin_id = _next_sequence("admins")
+        try:
+            db["admins"].insert_one(
+                {
+                    "_id": admin_id,
+                    "id": admin_id,
+                    "username": "admin",
+                    "password_hash": generate_password_hash("admin123"),
+                    "full_name": "Super Admin",
+                    "email": "admin@garajhub.uz",
+                    "role": "superadmin",
+                    "last_login": None,
+                }
+            )
+        except DuplicateKeyError:
+            pass
+
+    if not db["admins"].find_one({"username": "admin2"}):
+        admin2_id = _next_sequence("admins")
+        try:
+            db["admins"].insert_one(
+                {
+                    "_id": admin2_id,
+                    "id": admin2_id,
+                    "username": "admin2",
+                    "password_hash": generate_password_hash("admin2123"),
+                    "full_name": "Second Admin",
+                    "email": "admin2@garajhub.uz",
+                    "role": "admin",
+                    "last_login": None,
+                }
+            )
+        except DuplicateKeyError:
+            pass
+
+    if not db["admins"].find_one({"username": "moderator"}):
+        moderator_id = _next_sequence("admins")
+        try:
+            db["admins"].insert_one(
+                {
+                    "_id": moderator_id,
+                    "id": moderator_id,
+                    "username": "moderator",
+                    "password_hash": generate_password_hash("moderator123"),
+                    "full_name": "Moderator",
+                    "email": "moderator@garajhub.uz",
+                    "role": "moderator",
+                    "last_login": None,
+                }
+            )
+        except DuplicateKeyError:
+            pass
+
+
+def init_db():
+    """MongoDB ni tayyorlash va kerak bo'lsa SQLite dan migratsiya qilish."""
+    _ensure_indexes()
+    _migrate_sqlite_to_mongodb()
+    _ensure_defaults()
+    _sync_counters()
+    print("Database initialized successfully (MongoDB).")
+
 
 # ======================== PRO SETTINGS FUNCTIONS ========================
 
-def get_pro_settings() -> Dict:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT pro_enabled, pro_price, card_number FROM pro_settings WHERE id = 1')
-    row = cursor.fetchone()
-    conn.close()
 
-    if row:
-        return {
-            'pro_enabled': int(row['pro_enabled']),
-            'pro_price': int(row['pro_price']),
-            'card_number': row['card_number'] or ''
-        }
-    return {'pro_enabled': 0, 'pro_price': 0, 'card_number': ''}
+def get_pro_settings() -> Dict:
+    db = _get_db()
+    row = db["pro_settings"].find_one({"_id": 1}) or {}
+    return {
+        "pro_enabled": int(row.get("pro_enabled", 0)),
+        "pro_price": int(row.get("pro_price", 0)),
+        "card_number": row.get("card_number", "") or "",
+    }
+
 
 def set_pro_enabled(enabled: bool):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('UPDATE pro_settings SET pro_enabled = ? WHERE id = 1', (1 if enabled else 0,))
-    conn.commit()
-    conn.close()
+    db = _get_db()
+    db["pro_settings"].update_one({"_id": 1}, {"$set": {"pro_enabled": 1 if enabled else 0}}, upsert=True)
+
 
 def set_pro_price(price: int):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('UPDATE pro_settings SET pro_price = ? WHERE id = 1', (int(price),))
-    conn.commit()
-    conn.close()
+    db = _get_db()
+    db["pro_settings"].update_one({"_id": 1}, {"$set": {"pro_price": int(price)}}, upsert=True)
+
 
 def set_pro_card(card_number: str):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('UPDATE pro_settings SET card_number = ? WHERE id = 1', (card_number,))
-    conn.commit()
-    conn.close()
+    db = _get_db()
+    db["pro_settings"].update_one({"_id": 1}, {"$set": {"card_number": card_number}}, upsert=True)
+
 
 def _add_months(dt: datetime, months: int) -> datetime:
     month = dt.month - 1 + months
@@ -251,778 +593,585 @@ def _add_months(dt: datetime, months: int) -> datetime:
     day = min(dt.day, calendar.monthrange(year, month)[1])
     return dt.replace(year=year, month=month, day=day)
 
+
 def _expire_old_subscriptions():
-    now_iso = datetime.now().isoformat()
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        UPDATE pro_subscriptions
-        SET status = 'expired'
-        WHERE status = 'active' AND end_at <= ?
-    ''', (now_iso,))
-    conn.commit()
-    conn.close()
+    db = _get_db()
+    now = datetime.now()
+    rows = db["pro_subscriptions"].find({"status": "active"}, {"id": 1, "end_at": 1})
+    for row in rows:
+        end_dt = _parse_datetime(row.get("end_at"))
+        if end_dt and end_dt <= now:
+            db["pro_subscriptions"].update_one(
+                {"id": row.get("id")},
+                {"$set": {"status": "expired"}},
+            )
+
 
 def get_active_pro_subscription(user_id: int) -> Optional[Dict]:
     _expire_old_subscriptions()
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT * FROM pro_subscriptions
-        WHERE user_id = ? AND status = 'active'
-        ORDER BY end_at DESC LIMIT 1
-    ''', (user_id,))
-    row = cursor.fetchone()
-    conn.close()
-    return dict(row) if row else None
+    db = _get_db()
+    rows = list(db["pro_subscriptions"].find({"user_id": int(user_id), "status": "active"}))
+    if not rows:
+        return None
+    rows.sort(key=lambda r: _parse_datetime(r.get("end_at")) or datetime.min, reverse=True)
+    return _without_mongo_id(rows[0])
+
 
 def is_user_pro(user_id: int) -> bool:
     return get_active_pro_subscription(user_id) is not None
 
-def add_pro_subscription(user_id: int, months: int = 1, source: str = 'payment', note: str = '') -> Dict:
+
+def add_pro_subscription(user_id: int, months: int = 1, source: str = "payment", note: str = "") -> Dict:
     _expire_old_subscriptions()
+
     now = datetime.now()
     active = get_active_pro_subscription(user_id)
-    if active and active.get('end_at'):
-        try:
-            start_base = datetime.fromisoformat(active['end_at'])
-        except Exception:
-            start_base = now
+    if active and active.get("end_at"):
+        start_base = _parse_datetime(active.get("end_at")) or now
     else:
         start_base = now
 
     start_at = start_base if start_base > now else now
     end_at = _add_months(start_at, months)
 
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO pro_subscriptions (user_id, start_at, end_at, status, source, note)
-        VALUES (?, ?, ?, 'active', ?, ?)
-    ''', (user_id, start_at.isoformat(), end_at.isoformat(), source, note))
-    conn.commit()
-    sub_id = cursor.lastrowid
-    conn.close()
-
-    return {
-        'id': sub_id,
-        'user_id': user_id,
-        'start_at': start_at.isoformat(),
-        'end_at': end_at.isoformat(),
-        'status': 'active',
-        'source': source,
-        'note': note
+    sub_id = _next_sequence("pro_subscriptions")
+    doc = {
+        "_id": sub_id,
+        "id": sub_id,
+        "user_id": int(user_id),
+        "start_at": start_at.isoformat(),
+        "end_at": end_at.isoformat(),
+        "status": "active",
+        "source": source,
+        "note": note,
+        "created_at": _now_iso(),
     }
+    _get_db()["pro_subscriptions"].insert_one(doc)
+    return _without_mongo_id(doc) or {}
 
 # ======================== PRO PAYMENTS FUNCTIONS ========================
 
+
 def create_pro_payment(user_id: int, amount: int, card_number: str, receipt_file_id: str) -> int:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO pro_payments (user_id, amount, card_number, receipt_file_id, status)
-        VALUES (?, ?, ?, ?, 'pending')
-    ''', (user_id, int(amount), card_number, receipt_file_id))
-    conn.commit()
-    payment_id = cursor.lastrowid
-    conn.close()
+    payment_id = _next_sequence("pro_payments")
+    _get_db()["pro_payments"].insert_one(
+        {
+            "_id": payment_id,
+            "id": payment_id,
+            "user_id": int(user_id),
+            "amount": int(amount),
+            "card_number": card_number,
+            "receipt_file_id": receipt_file_id,
+            "status": "pending",
+            "created_at": _now_iso(),
+        }
+    )
     return int(payment_id)
 
+
 def get_payment(payment_id: int) -> Optional[Dict]:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM pro_payments WHERE id = ?', (int(payment_id),))
-    row = cursor.fetchone()
-    conn.close()
-    return dict(row) if row else None
+    row = _get_db()["pro_payments"].find_one({"id": int(payment_id)})
+    return _without_mongo_id(row)
+
 
 def get_pending_payments(limit: int = 20) -> List[Dict]:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT * FROM pro_payments
-        WHERE status = 'pending'
-        ORDER BY created_at DESC
-        LIMIT ?
-    ''', (limit,))
-    rows = cursor.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
+    rows = _get_db()["pro_payments"].find({"status": "pending"}).sort("created_at", DESCENDING).limit(int(limit))
+    return [_without_mongo_id(row) for row in rows if row]
+
 
 def update_payment_status(payment_id: int, status: str):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('UPDATE pro_payments SET status = ? WHERE id = ?', (status, int(payment_id)))
-    conn.commit()
-    conn.close()
+    _get_db()["pro_payments"].update_one({"id": int(payment_id)}, {"$set": {"status": status}})
+
 
 # ======================== REFERRAL FUNCTIONS ========================
+
 
 def register_referral(inviter_id: int, invited_id: int) -> bool:
     if inviter_id == invited_id:
         return False
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT id FROM referrals WHERE invited_id = ?', (invited_id,))
-    exists = cursor.fetchone()
-    if exists:
-        conn.close()
+
+    db = _get_db()
+    if db["referrals"].find_one({"invited_id": int(invited_id)}):
         return False
-    cursor.execute('''
-        INSERT INTO referrals (inviter_id, invited_id, status)
-        VALUES (?, ?, 'pending')
-    ''', (inviter_id, invited_id))
-    conn.commit()
-    conn.close()
-    return True
+
+    referral_id = _next_sequence("referrals")
+    try:
+        db["referrals"].insert_one(
+            {
+                "_id": referral_id,
+                "id": referral_id,
+                "inviter_id": int(inviter_id),
+                "invited_id": int(invited_id),
+                "status": "pending",
+                "created_at": _now_iso(),
+                "confirmed_at": None,
+            }
+        )
+        return True
+    except DuplicateKeyError:
+        return False
+
 
 def confirm_referral(invited_id: int) -> Optional[int]:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT inviter_id, status FROM referrals WHERE invited_id = ?
-    ''', (invited_id,))
-    row = cursor.fetchone()
+    db = _get_db()
+    row = db["referrals"].find_one({"invited_id": int(invited_id)})
     if not row:
-        conn.close()
         return None
-    if row['status'] != 'confirmed':
-        cursor.execute('''
-            UPDATE referrals
-            SET status = 'confirmed', confirmed_at = ?
-            WHERE invited_id = ?
-        ''', (datetime.now().isoformat(), invited_id))
-        conn.commit()
-    inviter_id = row['inviter_id']
-    conn.close()
-    return inviter_id
+
+    if row.get("status") != "confirmed":
+        db["referrals"].update_one(
+            {"id": row.get("id")},
+            {"$set": {"status": "confirmed", "confirmed_at": _now_iso()}},
+        )
+    return _to_int(row.get("inviter_id"), None)
+
 
 def get_confirmed_referral_count(inviter_id: int) -> int:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT COUNT(*) as count FROM referrals
-        WHERE inviter_id = ? AND status = 'confirmed'
-    ''', (inviter_id,))
-    row = cursor.fetchone()
-    conn.close()
-    return int(row['count']) if row else 0
+    return _get_db()["referrals"].count_documents(
+        {"inviter_id": int(inviter_id), "status": "confirmed"}
+    )
+
 
 def get_referral_reward_count(inviter_id: int) -> int:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT COUNT(*) as count FROM referral_rewards WHERE inviter_id = ?
-    ''', (inviter_id,))
-    row = cursor.fetchone()
-    conn.close()
-    return int(row['count']) if row else 0
+    return _get_db()["referral_rewards"].count_documents({"inviter_id": int(inviter_id)})
+
 
 def add_referral_reward(inviter_id: int, months: int = 1):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO referral_rewards (inviter_id, months)
-        VALUES (?, ?)
-    ''', (inviter_id, int(months)))
-    conn.commit()
-    conn.close()
+    reward_id = _next_sequence("referral_rewards")
+    _get_db()["referral_rewards"].insert_one(
+        {
+            "_id": reward_id,
+            "id": reward_id,
+            "inviter_id": int(inviter_id),
+            "months": int(months),
+            "created_at": _now_iso(),
+        }
+    )
+
 
 def get_user_startup_count(owner_id: int) -> int:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT COUNT(*) as count FROM startups WHERE owner_id = ?', (owner_id,))
-    row = cursor.fetchone()
-    conn.close()
-    return int(row['count']) if row else 0
+    return _get_db()[STARTUPS_COLLECTION].count_documents({"owner_id": int(owner_id)})
+
 
 # ======================== USER FUNCTIONS ========================
 
+
 def get_user(user_id: int) -> Optional[Dict]:
-    """Foydalanuvchini olish"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))
-    row = cursor.fetchone()
-    conn.close()
-    
-    if row:
-        return dict(row)
-    return None
+    row = _get_db()[USERS_COLLECTION].find_one({"user_id": int(user_id)})
+    return _without_mongo_id(row)
+
 
 def save_user(user_id: int, username: str, first_name: str):
-    """Yangi foydalanuvchini saqlash"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        INSERT OR IGNORE INTO users (user_id, username, first_name)
-        VALUES (?, ?, ?)
-    ''', (user_id, username, first_name))
-    
-    conn.commit()
-    conn.close()
+    _get_db()[USERS_COLLECTION].update_one(
+        {"user_id": int(user_id)},
+        {
+            "$setOnInsert": {
+                "_id": int(user_id),
+                "user_id": int(user_id),
+                "username": username or "",
+                "first_name": first_name or "",
+                "last_name": "",
+                "phone": "",
+                "gender": "",
+                "birth_date": "",
+                "specialization": "",
+                "experience": "",
+                "bio": "",
+                "joined_at": _now_iso(),
+            }
+        },
+        upsert=True,
+    )
+
 
 def update_user_field(user_id: int, field: str, value):
-    """Foydalanuvchi maydonini yangilash"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    query = f'UPDATE users SET {field} = ? WHERE user_id = ?'
-    cursor.execute(query, (value, user_id))
-    
-    conn.commit()
-    conn.close()
+    if field not in _ALLOWED_USER_FIELDS:
+        return
+    _get_db()[USERS_COLLECTION].update_one(
+        {"user_id": int(user_id)},
+        {"$set": {field: value}},
+    )
+
 
 def update_user_specialization(user_id: int, specialization: str):
-    """Mutaxassislikni yangilash"""
-    update_user_field(user_id, 'specialization', specialization)
+    update_user_field(user_id, "specialization", specialization)
+
 
 def update_user_experience(user_id: int, experience: str):
-    """Tajribani yangilash"""
-    update_user_field(user_id, 'experience', experience)
+    update_user_field(user_id, "experience", experience)
+
 
 def get_all_users() -> List[int]:
-    """Barcha foydalanuvchilar ID larini olish"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT user_id FROM users')
-    rows = cursor.fetchall()
-    conn.close()
-    
-    return [row['user_id'] for row in rows]
+    rows = _get_db()[USERS_COLLECTION].find({}, {"user_id": 1, "_id": 0})
+    return [_to_int(row.get("user_id"), 0) or 0 for row in rows]
+
 
 def get_recent_users(limit: int = 10) -> List[Dict]:
-    """So'nggi foydalanuvchilarni olish"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM users ORDER BY joined_at DESC LIMIT ?', (limit,))
-    rows = cursor.fetchall()
-    conn.close()
-    
-    return [dict(row) for row in rows]
+    rows = _get_db()[USERS_COLLECTION].find({}).sort("joined_at", DESCENDING).limit(int(limit))
+    return [_without_mongo_id(row) for row in rows if row]
+
 
 # ======================== STARTUP FUNCTIONS ========================
 
-def create_startup(name: str, description: str, logo: Optional[str], 
-                   group_link: str, owner_id: int, required_skills: str = "",
-                   category: str = "Boshqa", max_members: int = 10) -> Optional[str]:
-    """Yangi startup yaratish"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        INSERT INTO startups (name, description, logo, group_link, owner_id, 
-                            required_skills, category, max_members)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (name, description, logo, group_link, owner_id, required_skills, category, max_members))
-    
-    startup_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
-    
+
+def create_startup(
+    name: str,
+    description: str,
+    logo: Optional[str],
+    group_link: str,
+    owner_id: int,
+    required_skills: str = "",
+    category: str = "Boshqa",
+    max_members: int = 10,
+) -> Optional[str]:
+    startup_id = _next_sequence("startups")
+    _get_db()[STARTUPS_COLLECTION].insert_one(
+        {
+            "_id": startup_id,
+            "id": startup_id,
+            "name": name,
+            "description": description,
+            "logo": logo,
+            "group_link": group_link,
+            "owner_id": int(owner_id),
+            "required_skills": required_skills or "",
+            "category": category or "Boshqa",
+            "max_members": int(max_members),
+            "status": "pending",
+            "created_at": _now_iso(),
+            "started_at": None,
+            "results": None,
+            "channel_post_id": None,
+            "current_members": 0,
+        }
+    )
     return str(startup_id)
 
+
 def get_startup(startup_id: str) -> Optional[Dict]:
-    """Startupni ID bo'yicha olish"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM startups WHERE id = ?', (int(startup_id),))
-    row = cursor.fetchone()
-    conn.close()
-    
-    if row:
-        result = dict(row)
-        result['_id'] = str(result['id'])
-        return result
-    return None
+    sid = _to_int(startup_id, None)
+    if sid is None:
+        return None
+    row = _get_db()[STARTUPS_COLLECTION].find_one({"id": sid})
+    return _normalize_startup(row)
+
 
 def get_startups_by_owner(owner_id: int) -> List[Dict]:
-    """Egaga tegishli startaplarni olish"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM startups WHERE owner_id = ? ORDER BY created_at DESC', (owner_id,))
-    rows = cursor.fetchall()
-    conn.close()
-    
-    result = []
-    for row in rows:
-        startup = dict(row)
-        startup['_id'] = str(startup['id'])
-        result.append(startup)
-    return result
+    rows = _get_db()[STARTUPS_COLLECTION].find({"owner_id": int(owner_id)}).sort("created_at", DESCENDING)
+    return [_normalize_startup(row) for row in rows if row]
+
 
 def get_pending_startups(page: int = 1, per_page: int = 5) -> Tuple[List[Dict], int]:
-    """Kutilayotgan startaplarni olish"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    offset = (page - 1) * per_page
-    
-    cursor.execute('SELECT COUNT(*) as count FROM startups WHERE status = ?', ('pending',))
-    total = cursor.fetchone()['count']
-    
-    cursor.execute('''
-        SELECT * FROM startups WHERE status = ? 
-        ORDER BY created_at DESC LIMIT ? OFFSET ?
-    ''', ('pending', per_page, offset))
-    rows = cursor.fetchall()
-    conn.close()
-    
-    result = []
-    for row in rows:
-        startup = dict(row)
-        startup['_id'] = str(startup['id'])
-        result.append(startup)
-    
-    return result, total
+    db = _get_db()[STARTUPS_COLLECTION]
+    offset = (int(page) - 1) * int(per_page)
+    query = {"status": "pending"}
+    total = db.count_documents(query)
+    rows = db.find(query).sort("created_at", DESCENDING).skip(offset).limit(int(per_page))
+    return [_normalize_startup(row) for row in rows if row], total
+
 
 def get_active_startups(page: int = 1, per_page: int = 5) -> Tuple[List[Dict], int]:
-    """Faol startaplarni olish"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    offset = (page - 1) * per_page
-    
-    cursor.execute('SELECT COUNT(*) as count FROM startups WHERE status = ?', ('active',))
-    total = cursor.fetchone()['count']
-    
-    cursor.execute('''
-        SELECT * FROM startups WHERE status = ? 
-        ORDER BY created_at DESC LIMIT ? OFFSET ?
-    ''', ('active', per_page, offset))
-    rows = cursor.fetchall()
-    conn.close()
-    
-    result = []
-    for row in rows:
-        startup = dict(row)
-        startup['_id'] = str(startup['id'])
-        result.append(startup)
-    
-    return result, total
+    db = _get_db()[STARTUPS_COLLECTION]
+    offset = (int(page) - 1) * int(per_page)
+    query = {"status": "active"}
+    total = db.count_documents(query)
+    rows = db.find(query).sort("created_at", DESCENDING).skip(offset).limit(int(per_page))
+    return [_normalize_startup(row) for row in rows if row], total
+
 
 def get_completed_startups() -> List[Dict]:
-    """Yakunlangan startaplarni olish"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM startups WHERE status = ? ORDER BY created_at DESC', ('completed',))
-    rows = cursor.fetchall()
-    conn.close()
-    
-    result = []
-    for row in rows:
-        startup = dict(row)
-        startup['_id'] = str(startup['id'])
-        result.append(startup)
-    return result
+    rows = _get_db()[STARTUPS_COLLECTION].find({"status": "completed"}).sort("created_at", DESCENDING)
+    return [_normalize_startup(row) for row in rows if row]
+
 
 def get_rejected_startups() -> List[Dict]:
-    """Rad etilgan startaplarni olish"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM startups WHERE status = ? ORDER BY created_at DESC', ('rejected',))
-    rows = cursor.fetchall()
-    conn.close()
-    
-    result = []
-    for row in rows:
-        startup = dict(row)
-        startup['_id'] = str(startup['id'])
-        result.append(startup)
-    return result
+    rows = _get_db()[STARTUPS_COLLECTION].find({"status": "rejected"}).sort("created_at", DESCENDING)
+    return [_normalize_startup(row) for row in rows if row]
+
 
 def get_recent_startups(limit: int = 10) -> List[Dict]:
-    """So'nggi startaplarni olish"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM startups ORDER BY created_at DESC LIMIT ?', (limit,))
-    rows = cursor.fetchall()
-    conn.close()
-    
-    result = []
-    for row in rows:
-        startup = dict(row)
-        startup['_id'] = str(startup['id'])
-        result.append(startup)
-    return result
+    rows = _get_db()[STARTUPS_COLLECTION].find({}).sort("created_at", DESCENDING).limit(int(limit))
+    return [_normalize_startup(row) for row in rows if row]
+
 
 def update_startup_status(startup_id: str, status: str):
-    """Startup holatini yangilash"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    started_at = datetime.now().isoformat() if status == 'active' else None
-    
-    if started_at:
-        cursor.execute('''
-            UPDATE startups SET status = ?, started_at = ? WHERE id = ?
-        ''', (status, started_at, int(startup_id)))
-    else:
-        cursor.execute('''
-            UPDATE startups SET status = ? WHERE id = ?
-        ''', (status, int(startup_id)))
-    
-    conn.commit()
-    conn.close()
+    sid = _to_int(startup_id, None)
+    if sid is None:
+        return
+    updates: Dict[str, Any] = {"status": status}
+    if status == "active":
+        updates["started_at"] = _now_iso()
+    _get_db()[STARTUPS_COLLECTION].update_one({"id": sid}, {"$set": updates})
+
 
 def update_startup_results(startup_id: str, results: str, completed_at: datetime):
-    """Startup natijalarini yangilash"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        UPDATE startups SET results = ? WHERE id = ?
-    ''', (results, int(startup_id)))
-    
-    conn.commit()
-    conn.close()
+    sid = _to_int(startup_id, None)
+    if sid is None:
+        return
+    updates: Dict[str, Any] = {"results": results}
+    if completed_at:
+        updates["completed_at"] = completed_at.isoformat()
+    _get_db()[STARTUPS_COLLECTION].update_one({"id": sid}, {"$set": updates})
+
 
 def update_startup_post_id(startup_id: str, post_id: int):
-    """Kanal post ID sini saqlash"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        UPDATE startups SET channel_post_id = ? WHERE id = ?
-    ''', (post_id, int(startup_id)))
-    
-    conn.commit()
-    conn.close()
+    sid = _to_int(startup_id, None)
+    if sid is None:
+        return
+    _get_db()[STARTUPS_COLLECTION].update_one({"id": sid}, {"$set": {"channel_post_id": int(post_id)}})
+
 
 def get_startup_by_post_id(post_id: int) -> Optional[Dict]:
-    """Post ID bo'yicha startupni olish"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM startups WHERE channel_post_id = ?', (post_id,))
-    row = cursor.fetchone()
-    conn.close()
-    
-    if row:
-        result = dict(row)
-        result['_id'] = str(result['id'])
-        return result
-    return None
+    row = _get_db()[STARTUPS_COLLECTION].find_one({"channel_post_id": int(post_id)})
+    return _normalize_startup(row)
+
 
 def update_startup_current_members(startup_id: str, count: int):
-    """A'zolar sonini yangilash"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        UPDATE startups SET current_members = ? WHERE id = ?
-    ''', (count, int(startup_id)))
-    
-    conn.commit()
-    conn.close()
+    sid = _to_int(startup_id, None)
+    if sid is None:
+        return
+    _get_db()[STARTUPS_COLLECTION].update_one({"id": sid}, {"$set": {"current_members": int(count)}})
+
 
 def get_startups_by_category(category: str) -> List[Dict]:
-    """Kategoriya bo'yicha startaplarni olish"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT * FROM startups WHERE category = ? AND status = 'active'
-        ORDER BY created_at DESC
-    ''', (category,))
-    rows = cursor.fetchall()
-    conn.close()
-    
-    result = []
-    for row in rows:
-        startup = dict(row)
-        startup['_id'] = str(startup['id'])
-        result.append(startup)
-    return result
+    rows = _get_db()[STARTUPS_COLLECTION].find(
+        {"category": category, "status": "active"}
+    ).sort("created_at", DESCENDING)
+    return [_normalize_startup(row) for row in rows if row]
+
 
 def get_all_categories() -> List[str]:
-    """Barcha kategoriyalarni olish"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT DISTINCT category FROM startups WHERE status = "active"')
-    rows = cursor.fetchall()
-    conn.close()
-    
-    return [row['category'] for row in rows]
+    categories = _get_db()[STARTUPS_COLLECTION].distinct("category", {"status": "active"})
+    return [category for category in categories if category]
+
 
 def get_startups_by_ids(startup_ids: List[int]) -> List[Dict]:
-    """ID lar bo'yicha startaplarni olish"""
     if not startup_ids:
         return []
-    
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    placeholders = ','.join('?' * len(startup_ids))
-    cursor.execute(f'SELECT * FROM startups WHERE id IN ({placeholders})', startup_ids)
-    rows = cursor.fetchall()
-    conn.close()
-    
-    result = []
+
+    ids = []
+    for startup_id in startup_ids:
+        sid = _to_int(startup_id, None)
+        if sid is not None:
+            ids.append(sid)
+    if not ids:
+        return []
+
+    rows = list(_get_db()[STARTUPS_COLLECTION].find({"id": {"$in": ids}}))
+    by_id = {}
     for row in rows:
-        startup = dict(row)
-        startup['_id'] = str(startup['id'])
-        result.append(startup)
-    return result
+        norm = _normalize_startup(row)
+        if norm:
+            by_id[norm["id"]] = norm
+
+    ordered: List[Dict] = []
+    for sid in ids:
+        if sid in by_id:
+            ordered.append(by_id[sid])
+    return ordered
 
 # ======================== STARTUP MEMBERS FUNCTIONS ========================
 
+
 def add_startup_member(startup_id: str, user_id: int):
-    """Startupga a'zo qo'shish so'rovi"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        INSERT INTO startup_members (startup_id, user_id, status)
-        VALUES (?, ?, 'pending')
-    ''', (int(startup_id), user_id))
-    
-    conn.commit()
-    conn.close()
+    sid = _to_int(startup_id, None)
+    if sid is None:
+        return
+    member_id = _next_sequence("startup_members")
+    _get_db()[STARTUP_MEMBERS_COLLECTION].insert_one(
+        {
+            "_id": member_id,
+            "id": member_id,
+            "startup_id": sid,
+            "user_id": int(user_id),
+            "status": "pending",
+            "joined_at": _now_iso(),
+        }
+    )
+
 
 def get_join_request_id(startup_id: str, user_id: int) -> Optional[str]:
-    """Qo'shilish so'rovi ID sini olish"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT id FROM startup_members 
-        WHERE startup_id = ? AND user_id = ?
-        ORDER BY joined_at DESC LIMIT 1
-    ''', (int(startup_id), user_id))
-    row = cursor.fetchone()
-    conn.close()
-    
-    if row:
-        return str(row['id'])
-    return None
+    sid = _to_int(startup_id, None)
+    if sid is None:
+        return None
+    row = (
+        _get_db()[STARTUP_MEMBERS_COLLECTION]
+        .find({"startup_id": sid, "user_id": int(user_id)})
+        .sort([("joined_at", DESCENDING), ("id", DESCENDING)])
+        .limit(1)
+    )
+    rows = list(row)
+    if not rows:
+        return None
+    return str(rows[0].get("id"))
+
 
 def get_join_request(request_id: str) -> Optional[Dict]:
-    """So'rov ma'lumotlarini olish"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM startup_members WHERE id = ?', (int(request_id),))
-    row = cursor.fetchone()
-    conn.close()
-    
-    if row:
-        return dict(row)
-    return None
+    rid = _to_int(request_id, None)
+    if rid is None:
+        return None
+    row = _get_db()[STARTUP_MEMBERS_COLLECTION].find_one({"id": rid})
+    return _without_mongo_id(row)
+
 
 def update_join_request(request_id: str, status: str):
-    """Qo'shilish so'rovini yangilash"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        UPDATE startup_members SET status = ? WHERE id = ?
-    ''', (status, int(request_id)))
-    
-    conn.commit()
-    conn.close()
+    rid = _to_int(request_id, None)
+    if rid is None:
+        return
+    _get_db()[STARTUP_MEMBERS_COLLECTION].update_one({"id": rid}, {"$set": {"status": status}})
+
 
 def get_startup_members(startup_id: str, page: int = 1, per_page: int = 5) -> Tuple[List[Dict], int]:
-    """Startup a'zolarini olish"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    offset = (page - 1) * per_page
-    
-    cursor.execute('''
-        SELECT COUNT(*) as count FROM startup_members 
-        WHERE startup_id = ? AND status = 'accepted'
-    ''', (int(startup_id),))
-    total = cursor.fetchone()['count']
-    
-    cursor.execute('''
-        SELECT u.* FROM users u
-        JOIN startup_members sm ON u.user_id = sm.user_id
-        WHERE sm.startup_id = ? AND sm.status = 'accepted'
-        ORDER BY sm.joined_at DESC
-        LIMIT ? OFFSET ?
-    ''', (int(startup_id), per_page, offset))
-    rows = cursor.fetchall()
-    conn.close()
-    
-    return [dict(row) for row in rows], total
+    sid = _to_int(startup_id, None)
+    if sid is None:
+        return [], 0
+
+    members_col = _get_db()[STARTUP_MEMBERS_COLLECTION]
+    users_col = _get_db()[USERS_COLLECTION]
+
+    offset = (int(page) - 1) * int(per_page)
+    query = {"startup_id": sid, "status": "accepted"}
+
+    total = members_col.count_documents(query)
+    member_rows = list(
+        members_col.find(query)
+        .sort("joined_at", DESCENDING)
+        .skip(offset)
+        .limit(int(per_page))
+    )
+
+    user_ids = [row.get("user_id") for row in member_rows if row.get("user_id") is not None]
+    if not user_ids:
+        return [], total
+
+    users = users_col.find({"user_id": {"$in": user_ids}})
+    user_map = {}
+    for user in users:
+        clean = _without_mongo_id(user)
+        if clean:
+            user_map[clean.get("user_id")] = clean
+
+    ordered_users: List[Dict] = []
+    for member in member_rows:
+        user = user_map.get(member.get("user_id"))
+        if user:
+            ordered_users.append(user)
+    return ordered_users, total
+
 
 def get_all_startup_members(startup_id: str) -> List[int]:
-    """Barcha startup a'zolarining ID larini olish"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT user_id FROM startup_members 
-        WHERE startup_id = ? AND status = 'accepted'
-    ''', (int(startup_id),))
-    rows = cursor.fetchall()
-    conn.close()
-    
-    return [row['user_id'] for row in rows]
+    sid = _to_int(startup_id, None)
+    if sid is None:
+        return []
+    rows = _get_db()[STARTUP_MEMBERS_COLLECTION].find(
+        {"startup_id": sid, "status": "accepted"},
+        {"user_id": 1, "_id": 0},
+    )
+    return [_to_int(row.get("user_id"), 0) or 0 for row in rows]
+
 
 def get_startup_member_count(startup_id: str) -> int:
-    """Startup a'zolari sonini olish"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT COUNT(*) as count FROM startup_members 
-        WHERE startup_id = ? AND status = 'accepted'
-    ''', (int(startup_id),))
-    row = cursor.fetchone()
-    conn.close()
-    
-    return row['count']
+    sid = _to_int(startup_id, None)
+    if sid is None:
+        return 0
+    return _get_db()[STARTUP_MEMBERS_COLLECTION].count_documents({"startup_id": sid, "status": "accepted"})
+
 
 def update_startup_member_count(startup_id: str):
-    """A'zolar sonini hisoblash va yangilash"""
     count = get_startup_member_count(startup_id)
     update_startup_current_members(startup_id, count)
 
+
 def get_user_joined_startups(user_id: int) -> List[int]:
-    """Foydalanuvchi qo'shilgan startaplar ID larini olish"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT startup_id FROM startup_members 
-        WHERE user_id = ? AND status = 'accepted'
-        ORDER BY joined_at DESC
-    ''', (user_id,))
-    rows = cursor.fetchall()
-    conn.close()
-    
-    return [row['startup_id'] for row in rows]
+    rows = (
+        _get_db()[STARTUP_MEMBERS_COLLECTION]
+        .find({"user_id": int(user_id), "status": "accepted"}, {"startup_id": 1, "_id": 0})
+        .sort("joined_at", DESCENDING)
+    )
+    result: List[int] = []
+    for row in rows:
+        sid = _to_int(row.get("startup_id"), None)
+        if sid is not None:
+            result.append(sid)
+    return result
+
 
 # ======================== STATISTICS FUNCTIONS ========================
 
+
 def get_statistics() -> Dict:
-    """Statistikani olish"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('SELECT COUNT(*) as count FROM users')
-    total_users = cursor.fetchone()['count']
-    
-    cursor.execute('SELECT COUNT(*) as count FROM startups')
-    total_startups = cursor.fetchone()['count']
-    
-    cursor.execute('SELECT COUNT(*) as count FROM startups WHERE status = ?', ('pending',))
-    pending_startups = cursor.fetchone()['count']
-    
-    cursor.execute('SELECT COUNT(*) as count FROM startups WHERE status = ?', ('active',))
-    active_startups = cursor.fetchone()['count']
-    
-    cursor.execute('SELECT COUNT(*) as count FROM startups WHERE status = ?', ('completed',))
-    completed_startups = cursor.fetchone()['count']
-    
-    cursor.execute('SELECT COUNT(*) as count FROM startups WHERE status = ?', ('rejected',))
-    rejected_startups = cursor.fetchone()['count']
-    
-    conn.close()
-    
+    startups_col = _get_db()[STARTUPS_COLLECTION]
     return {
-        'total_users': total_users,
-        'total_startups': total_startups,
-        'pending_startups': pending_startups,
-        'active_startups': active_startups,
-        'completed_startups': completed_startups,
-        'rejected_startups': rejected_startups
+        "total_users": _get_db()[USERS_COLLECTION].count_documents({}),
+        "total_startups": startups_col.count_documents({}),
+        "pending_startups": startups_col.count_documents({"status": "pending"}),
+        "active_startups": startups_col.count_documents({"status": "active"}),
+        "completed_startups": startups_col.count_documents({"status": "completed"}),
+        "rejected_startups": startups_col.count_documents({"status": "rejected"}),
     }
+
 
 # ======================== SETTINGS FUNCTIONS ========================
 
+
 def get_app_settings() -> Dict:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT site_name, admin_email, timezone FROM app_settings WHERE id = 1')
-    row = cursor.fetchone()
-    conn.close()
-    if row:
-        return {
-            'site_name': row['site_name'],
-            'admin_email': row['admin_email'],
-            'timezone': row['timezone']
-        }
+    row = _get_db()["app_settings"].find_one({"_id": 1}) or {}
     return {
-        'site_name': 'GarajHub',
-        'admin_email': 'admin@garajhub.uz',
-        'timezone': 'Asia/Tashkent'
+        "site_name": row.get("site_name", "GarajHub"),
+        "admin_email": row.get("admin_email", "admin@garajhub.uz"),
+        "timezone": row.get("timezone", "Asia/Tashkent"),
     }
 
+
 def update_app_settings(site_name: str, admin_email: str, timezone: str):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        UPDATE app_settings
-        SET site_name = ?, admin_email = ?, timezone = ?
-        WHERE id = 1
-    ''', (site_name, admin_email, timezone))
-    conn.commit()
-    conn.close()
+    _get_db()["app_settings"].update_one(
+        {"_id": 1},
+        {"$set": {"site_name": site_name, "admin_email": admin_email, "timezone": timezone}},
+        upsert=True,
+    )
+
 
 # ======================== ADMIN FUNCTIONS ========================
 
+
 def get_admin_by_username(username: str) -> Optional[Dict]:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM admins WHERE username = ?', (username,))
-    row = cursor.fetchone()
-    conn.close()
-    return dict(row) if row else None
+    row = _get_db()["admins"].find_one({"username": username})
+    return _without_mongo_id(row)
+
 
 def get_admin_by_id(admin_id: int) -> Optional[Dict]:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM admins WHERE id = ?', (admin_id,))
-    row = cursor.fetchone()
-    conn.close()
-    return dict(row) if row else None
+    row = _get_db()["admins"].find_one({"id": int(admin_id)})
+    return _without_mongo_id(row)
+
 
 def get_all_admins() -> List[Dict]:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM admins ORDER BY id ASC')
-    rows = cursor.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
+    rows = _get_db()["admins"].find({}).sort("id", ASCENDING)
+    return [_without_mongo_id(row) for row in rows if row]
+
 
 def add_admin(username: str, password_hash: str, full_name: str, email: str, role: str) -> Optional[int]:
-    conn = get_connection()
-    cursor = conn.cursor()
+    admin_id = _next_sequence("admins")
+    doc = {
+        "_id": admin_id,
+        "id": admin_id,
+        "username": username,
+        "password_hash": password_hash,
+        "full_name": full_name,
+        "email": email,
+        "role": role,
+        "last_login": None,
+    }
     try:
-        cursor.execute('''
-            INSERT INTO admins (username, password_hash, full_name, email, role)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (username, password_hash, full_name, email, role))
-        admin_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
+        _get_db()["admins"].insert_one(doc)
         return admin_id
-    except sqlite3.IntegrityError:
-        conn.close()
+    except DuplicateKeyError:
         return None
 
+
 def delete_admin(admin_id: int) -> bool:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('DELETE FROM admins WHERE id = ?', (admin_id,))
-    conn.commit()
-    deleted = cursor.rowcount > 0
-    conn.close()
-    return deleted
+    result = _get_db()["admins"].delete_one({"id": int(admin_id)})
+    return result.deleted_count > 0
+
 
 def update_admin_last_login(admin_id: int):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('UPDATE admins SET last_login = ? WHERE id = ?', (datetime.now().isoformat(), admin_id))
-    conn.commit()
-    conn.close()
-
-
-# Bu qo'shimcha constantalar - MongoDB versiyasida bo'lgan
-USERS_COLLECTION = 'users'
-STARTUPS_COLLECTION = 'startups'
-STARTUP_MEMBERS_COLLECTION = 'startup_members'
-
-# MongoDB versiyasidan qolgan funksiyalar uchun
-class FakeDB:
-    """MongoDB db obyektini SQLite uchun fake qilish"""
-    pass
-
-db = FakeDB()
+    _get_db()["admins"].update_one({"id": int(admin_id)}, {"$set": {"last_login": _now_iso()}})
