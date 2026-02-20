@@ -496,7 +496,7 @@ def handle_photo_messages(message):
     admin_review_messages = []
     for admin_chat_id in ADMIN_IDS:
         try:
-            sent_msg = bot.send_photo(admin_chat_id, receipt_file_id, caption=text, reply_markup=markup)
+            sent_msg = bot.send_photo(admin_chat_id, receipt_file_id, caption=text, reply_markup=markup, parse_mode='HTML')
             admin_review_messages.append({"chat_id": admin_chat_id, "message_id": sent_msg.message_id})
         except Exception as e:
             logging.error(f"Admin payment notify xatosi ({admin_chat_id}): {e}")
@@ -1057,7 +1057,7 @@ def show_recommended_page(chat_id, page, message_id=None):
                     bot.edit_message_media(
                         chat_id=chat_id,
                         message_id=message_id,
-                        media=types.InputMediaPhoto(startup['logo'], caption=text),
+                        media=types.InputMediaPhoto(startup['logo'], caption=text, parse_mode='HTML'),
                         reply_markup=markup
                     )
                 except:
@@ -1066,14 +1066,15 @@ def show_recommended_page(chat_id, page, message_id=None):
                             chat_id=chat_id,
                             message_id=message_id,
                             caption=text,
-                            reply_markup=markup
+                            reply_markup=markup,
+                            parse_mode='HTML'
                         )
                     except:
                         try:
                             bot.delete_message(chat_id, message_id)
                         except:
                             pass
-                        msg = bot.send_photo(chat_id, startup['logo'], caption=text, reply_markup=markup)
+                        msg = bot.send_photo(chat_id, startup['logo'], caption=text, reply_markup=markup, parse_mode='HTML')
             else:
                 try:
                     bot.edit_message_text(
@@ -1090,13 +1091,13 @@ def show_recommended_page(chat_id, page, message_id=None):
                     bot.send_message(chat_id, text, reply_markup=markup)
         else:
             if startup.get('logo'):
-                bot.send_photo(chat_id, startup['logo'], caption=text, reply_markup=markup)
+                bot.send_photo(chat_id, startup['logo'], caption=text, reply_markup=markup, parse_mode='HTML')
             else:
                 bot.send_message(chat_id, text, reply_markup=markup)
     except Exception as e:
         logging.error(f"Xabar yuborish/yangilashda xatolik: {e}")
         if startup.get('logo'):
-            bot.send_photo(chat_id, startup['logo'], caption=text, reply_markup=markup)
+            bot.send_photo(chat_id, startup['logo'], caption=text, reply_markup=markup, parse_mode='HTML')
         else:
             bot.send_message(chat_id, text, reply_markup=markup)
 
@@ -1344,7 +1345,7 @@ def handle_category_startup_view(call):
                     bot.edit_message_media(
                         chat_id=call.message.chat.id,
                         message_id=call.message.message_id,
-                        media=types.InputMediaPhoto(startup['logo'], caption=text),
+                        media=types.InputMediaPhoto(startup['logo'], caption=text, parse_mode='HTML'),
                         reply_markup=markup
                     )
                 except:
@@ -1353,10 +1354,11 @@ def handle_category_startup_view(call):
                             chat_id=call.message.chat.id,
                             message_id=call.message.message_id,
                             caption=text,
-                            reply_markup=markup
+                            reply_markup=markup,
+                            parse_mode='HTML'
                         )
                     except:
-                        bot.send_photo(call.message.chat.id, startup['logo'], caption=text, reply_markup=markup)
+                        bot.send_photo(call.message.chat.id, startup['logo'], caption=text, reply_markup=markup, parse_mode='HTML')
             else:
                 try:
                     bot.edit_message_text(
@@ -1369,7 +1371,7 @@ def handle_category_startup_view(call):
                     bot.send_message(call.message.chat.id, text, reply_markup=markup)
         except:
             if startup.get('logo'):
-                bot.send_photo(call.message.chat.id, startup['logo'], caption=text, reply_markup=markup)
+                bot.send_photo(call.message.chat.id, startup['logo'], caption=text, reply_markup=markup, parse_mode='HTML')
             else:
                 bot.send_message(call.message.chat.id, text, reply_markup=markup)
         
@@ -2031,7 +2033,7 @@ def process_startup_max_members(message):
         for admin_chat_id in ADMIN_IDS:
             try:
                 if startup_logo:
-                    sent_msg = bot.send_photo(admin_chat_id, startup_logo, caption=text, reply_markup=markup)
+                    sent_msg = bot.send_photo(admin_chat_id, startup_logo, caption=text, reply_markup=markup, parse_mode='HTML')
                 else:
                     sent_msg = bot.send_message(admin_chat_id, text, reply_markup=markup)
                 admin_review_messages.append({"chat_id": admin_chat_id, "message_id": sent_msg.message_id})
@@ -2237,7 +2239,7 @@ def view_my_startup_details(chat_id, user_id, startup, message_id=None):
                     bot.edit_message_media(
                         chat_id=chat_id,
                         message_id=message_id,
-                        media=types.InputMediaPhoto(startup['logo'], caption=text),
+                        media=types.InputMediaPhoto(startup['logo'], caption=text, parse_mode='HTML'),
                         reply_markup=markup
                     )
                 except:
@@ -2246,10 +2248,11 @@ def view_my_startup_details(chat_id, user_id, startup, message_id=None):
                             chat_id=chat_id,
                             message_id=message_id,
                             caption=text,
-                            reply_markup=markup
+                            reply_markup=markup,
+                            parse_mode='HTML'
                         )
                     except:
-                        bot.send_photo(chat_id, startup['logo'], caption=text, reply_markup=markup)
+                        bot.send_photo(chat_id, startup['logo'], caption=text, reply_markup=markup, parse_mode='HTML')
             else:
                 try:
                     bot.edit_message_text(
@@ -2262,12 +2265,12 @@ def view_my_startup_details(chat_id, user_id, startup, message_id=None):
                     bot.send_message(chat_id, text, reply_markup=markup)
         except:
             if startup.get('logo'):
-                bot.send_photo(chat_id, startup['logo'], caption=text, reply_markup=markup)
+                bot.send_photo(chat_id, startup['logo'], caption=text, reply_markup=markup, parse_mode='HTML')
             else:
                 bot.send_message(chat_id, text, reply_markup=markup)
     else:
         if startup.get('logo'):
-            bot.send_photo(chat_id, startup['logo'], caption=text, reply_markup=markup)
+            bot.send_photo(chat_id, startup['logo'], caption=text, reply_markup=markup, parse_mode='HTML')
         else:
             bot.send_message(chat_id, text, reply_markup=markup)
 
@@ -2406,7 +2409,8 @@ def process_startup_photo(message, startup_id, results_text):
                         f"🎯 <b>{startup_name}</b>\n"
                         f"📅 <b>Yakunlangan sana:</b> {end_date}\n"
                         f"📝 <b>Natijalar:</b> {results_text}"
-                    )
+                    ),
+                    parse_mode='HTML'
                 )
                 success_count += 1
             except:
@@ -2605,7 +2609,7 @@ def handle_joined_startup_view(call):
                 bot.edit_message_media(
                     chat_id=call.message.chat.id,
                     message_id=call.message.message_id,
-                    media=types.InputMediaPhoto(startup['logo'], caption=text),
+                    media=types.InputMediaPhoto(startup['logo'], caption=text, parse_mode='HTML'),
                     reply_markup=markup
                 )
             else:
@@ -2617,7 +2621,7 @@ def handle_joined_startup_view(call):
                 )
         except:
             if startup.get('logo'):
-                bot.send_photo(call.message.chat.id, startup['logo'], caption=text, reply_markup=markup)
+                bot.send_photo(call.message.chat.id, startup['logo'], caption=text, reply_markup=markup, parse_mode='HTML')
             else:
                 bot.send_message(call.message.chat.id, text, reply_markup=markup)
         
@@ -2934,7 +2938,7 @@ def admin_view_startup_details(call):
                 bot.edit_message_media(
                     chat_id=call.message.chat.id,
                     message_id=call.message.message_id,
-                    media=types.InputMediaPhoto(startup['logo'], caption=text),
+                    media=types.InputMediaPhoto(startup['logo'], caption=text, parse_mode='HTML'),
                     reply_markup=markup
                 )
             else:
@@ -2946,7 +2950,7 @@ def admin_view_startup_details(call):
                 )
         except:
             if startup.get('logo'):
-                bot.send_photo(call.message.chat.id, startup['logo'], caption=text, reply_markup=markup)
+                bot.send_photo(call.message.chat.id, startup['logo'], caption=text, reply_markup=markup, parse_mode='HTML')
             else:
                 bot.send_message(call.message.chat.id, text, reply_markup=markup)
         
@@ -3009,7 +3013,7 @@ def admin_approve_startup(call):
         post_sent = False
         try:
             if startup.get('logo'):
-                sent_message = bot.send_photo(CHANNEL_USERNAME, startup['logo'], caption=channel_text, reply_markup=markup)
+                sent_message = bot.send_photo(CHANNEL_USERNAME, startup['logo'], caption=channel_text, reply_markup=markup, parse_mode='HTML')
             else:
                 sent_message = bot.send_message(CHANNEL_USERNAME, channel_text, reply_markup=markup)
             
@@ -3152,7 +3156,7 @@ def process_broadcast_message(message):
         try:
             # Xabar turini tekshirish
             if message.photo:
-                bot.send_photo(user, message.photo[-1].file_id, caption=text if text else None)
+                bot.send_photo(user, message.photo[-1].file_id, caption=text if text else None, parse_mode='HTML')
             elif message.video:
                 bot.send_video(user, message.video.file_id, caption=text if text else None)
             elif message.document:
@@ -3318,7 +3322,7 @@ def handle_pro_pay_view(call):
             InlineKeyboardButton('✅ Tasdiqlash', callback_data=f'pro_pay_approve_{payment_id}'),
             InlineKeyboardButton('❌ Rad etish', callback_data=f'pro_pay_reject_{payment_id}')
         )
-        bot.send_photo(call.message.chat.id, receipt_id, caption=text, reply_markup=markup)
+        bot.send_photo(call.message.chat.id, receipt_id, caption=text, reply_markup=markup, parse_mode='HTML')
         bot.answer_callback_query(call.id)
     except Exception as e:
         logging.error(f"pro_pay_view xatosi: {e}")

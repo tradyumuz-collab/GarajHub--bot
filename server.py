@@ -81,33 +81,137 @@ try:
     from main import bot, BOT_TOKEN, ADMIN_ID, CHANNEL_USERNAME
     from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
     import telebot.apihelper as apihelper
+    import telebot
     BOT_AVAILABLE = True
     print("✅ Bot moduli muvaffaqiyatli yuklandi")
+    logging.getLogger("TeleBot").setLevel(logging.CRITICAL)
+    logging.getLogger("telebot").setLevel(logging.CRITICAL)
+    telebot.logger.setLevel(logging.CRITICAL)
     
     # Bot threadini global o'zgaruvchi sifatida saqlash
     bot_thread = None
+    BOT_LOCK_ID = os.environ.get('BOT_LOCK_ID', 'telegram_polling_lock')
+    BOT_LOCK_TTL_SEC = int(os.environ.get('BOT_LOCK_TTL_SEC', '120'))
+    BOT_LOCK_HEARTBEAT_SEC = int(os.environ.get('BOT_LOCK_HEARTBEAT_SEC', '30'))
+    BOT_CONFLICT_BACKOFF_SEC = int(os.environ.get('BOT_CONFLICT_BACKOFF_SEC', '120'))
+    BOT_INSTANCE_ID = f"{os.environ.get('HOSTNAME', 'local')}:{os.getpid()}"
+
+    def _get_bot_lock_collection():
+        try:
+            db = get_connection()
+            if db is None:
+                return None
+            return db["runtime_locks"]
+        except Exception:
+            return None
+
+    def _acquire_bot_lock(instance_id: str) -> bool:
+        col = _get_bot_lock_collection()
+        if col is None:
+            return True
+        now = datetime.utcnow()
+        expires_at = now + timedelta(seconds=BOT_LOCK_TTL_SEC)
+        try:
+            col.update_one(
+                {"_id": BOT_LOCK_ID},
+                {"$setOnInsert": {"owner": "", "updated_at": now, "expires_at": now}},
+                upsert=True
+            )
+            result = col.update_one(
+                {
+                    "_id": BOT_LOCK_ID,
+                    "$or": [
+                        {"owner": instance_id},
+                        {"owner": ""},
+                        {"expires_at": {"$lte": now}},
+                    ],
+                },
+                {"$set": {"owner": instance_id, "updated_at": now, "expires_at": expires_at}},
+            )
+            if result.modified_count > 0:
+                return True
+            row = col.find_one({"_id": BOT_LOCK_ID}, {"owner": 1})
+            return (row or {}).get("owner") == instance_id
+        except Exception as e:
+            logging.error(f"Bot lock acquire xatosi: {e}")
+            # Lock ishlamasa ham bot to'xtab qolmasin.
+            return True
+
+    def _renew_bot_lock(instance_id: str) -> bool:
+        col = _get_bot_lock_collection()
+        if col is None:
+            return True
+        now = datetime.utcnow()
+        expires_at = now + timedelta(seconds=BOT_LOCK_TTL_SEC)
+        try:
+            result = col.update_one(
+                {"_id": BOT_LOCK_ID, "owner": instance_id},
+                {"$set": {"updated_at": now, "expires_at": expires_at}},
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            logging.error(f"Bot lock renew xatosi: {e}")
+            return False
+
+    def _release_bot_lock(instance_id: str):
+        col = _get_bot_lock_collection()
+        if col is None:
+            return
+        now = datetime.utcnow()
+        try:
+            col.update_one(
+                {"_id": BOT_LOCK_ID, "owner": instance_id},
+                {"$set": {"owner": "", "updated_at": now, "expires_at": now}},
+            )
+        except Exception as e:
+            logging.error(f"Bot lock release xatosi: {e}")
+
+    def _lock_heartbeat(stop_event: threading.Event, instance_id: str):
+        while not stop_event.wait(BOT_LOCK_HEARTBEAT_SEC):
+            ok = _renew_bot_lock(instance_id)
+            if not ok:
+                logging.warning("Bot lock heartbeat muvaffaqiyatsiz.")
     
     def start_bot():
         """Botni alohida threadda ishga tushirish"""
         global bot_thread
+        if bot_thread is not None and bot_thread.is_alive():
+            print("ℹ️ Bot thread allaqachon ishlamoqda")
+            return
         
         def run_bot():
             print("🤖 Bot ishga tushmoqda...")
             while True:
+                if not _acquire_bot_lock(BOT_INSTANCE_ID):
+                    logging.info("Boshqa instance bot polling qilmoqda. Kutilyapti...")
+                    time.sleep(BOT_LOCK_HEARTBEAT_SEC)
+                    continue
+
+                lock_stop_event = threading.Event()
+                heartbeat_thread = threading.Thread(
+                    target=_lock_heartbeat,
+                    args=(lock_stop_event, BOT_INSTANCE_ID),
+                    daemon=True
+                )
+                heartbeat_thread.start()
                 try:
                     try:
                         bot.remove_webhook()
                     except:
                         pass
-                    bot.infinity_polling(timeout=60, long_polling_timeout=60)
+                    bot.infinity_polling(
+                        timeout=60,
+                        long_polling_timeout=60,
+                        logger_level=logging.CRITICAL
+                    )
                 except apihelper.ApiTelegramException as e:
                     if '409' in str(e):
-                        logging.error(f"Telegram 409 conflict: {e}. Retrying...")
+                        logging.warning(f"Telegram 409 conflict: {e}. Backoff...")
                         try:
                             bot.remove_webhook()
                         except:
                             pass
-                        time.sleep(5)
+                        time.sleep(BOT_CONFLICT_BACKOFF_SEC)
                         continue
                     else:
                         logging.error(f"TeleBot ApiTelegramException: {e}")
@@ -116,6 +220,9 @@ try:
                 except Exception as e:
                     logging.error(f"Botda xatolik: {e}")
                     time.sleep(5)
+                finally:
+                    lock_stop_event.set()
+                    _release_bot_lock(BOT_INSTANCE_ID)
         
         # Botni alohida threadda ishga tushirish
         bot_thread = threading.Thread(target=run_bot, daemon=True)
