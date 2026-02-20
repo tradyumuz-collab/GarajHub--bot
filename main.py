@@ -420,7 +420,7 @@ def handle_contact(message):
         
         if state == 'waiting_phone':
             # Foydalanuvchi ismi
-            user = get_user(user_id)
+            user = get_user(user_id) or {}
             first_name = user.get('first_name', 'Foydalanuvchi')
             
             bot.send_message(
@@ -648,7 +648,7 @@ def show_profile(message):
         user = get_user(user_id)
         if not user:
             save_user(user_id, message.from_user.username or "", message.from_user.first_name or "")
-            user = get_user(user_id)
+            user = get_user(user_id) or {}
         
         profile_text = (
             "👤 <b>Profil ma'lumotlari:</b>\n\n"
@@ -2341,7 +2341,8 @@ def process_startup_photo(message, startup_id, results_text):
         members = get_all_startup_members(startup_id)
         
         # Barcha a'zolarga xabar yuborish
-        startup = get_startup(startup_id)
+        startup = get_startup(startup_id) or {}
+        startup_name = startup.get('name', "Startup")
         end_date = datetime.now().strftime('%d-%m-%Y')
         success_count = 0
         
@@ -2352,7 +2353,7 @@ def process_startup_photo(message, startup_id, results_text):
                     photo_id,
                     caption=(
                         f"🏁 <b>Startup yakunlandi</b>\n\n"
-                        f"🎯 <b>{startup['name']}</b>\n"
+                        f"🎯 <b>{startup_name}</b>\n"
                         f"📅 <b>Yakunlangan sana:</b> {end_date}\n"
                         f"📝 <b>Natijalar:</b> {results_text}"
                     )
@@ -2741,8 +2742,14 @@ def show_pending_startups(call):
     if not is_admin_user(call.from_user.id):
         bot.answer_callback_query(call.id, "❌ Ruxsat yo'q!", show_alert=True)
         return
-    
-    page = int(call.data.split('_')[2])
+
+    page = 1
+    if isinstance(call.data, str) and call.data.startswith('pending_startups_'):
+        try:
+            page = int(call.data.split('_')[2])
+        except Exception:
+            page = 1
+
     startups, total = get_pending_startups(page)
     
     if not startups:

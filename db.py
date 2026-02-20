@@ -217,22 +217,37 @@ def _ensure_indexes():
     startups_col.create_index([("status", ASCENDING), ("created_at", DESCENDING)])
     startups_col.create_index([("category", ASCENDING), ("status", ASCENDING)])
 
-    # Old index (`unique+sparse`) null qiymatlarni ham unique deb oladi va
-    # startup yaratishda DuplicateKey beradi. Uni partial indexga almashtiramiz.
-    for idx in startups_col.list_indexes():
-        keys = list((idx.get("key") or {}).items())
-        if keys == [("channel_post_id", 1)] and idx.get("name") != "channel_post_id_unique_not_null":
-            try:
-                startups_col.drop_index(idx["name"])
-            except Exception:
-                logging.exception("Drop old channel_post_id index failed")
+    # channel_post_id bo'yicha eski indexlarni tushirib, null qiymatlarni
+    # tozalab keyin backward-compatible unique+sparse index yaratamiz.
+    try:
+        for idx in startups_col.list_indexes():
+            keys = list((idx.get("key") or {}).items())
+            if keys == [("channel_post_id", 1)]:
+                try:
+                    startups_col.drop_index(idx["name"])
+                except Exception:
+                    logging.exception("Drop channel_post_id index failed")
 
-    startups_col.create_index(
-        [("channel_post_id", ASCENDING)],
-        name="channel_post_id_unique_not_null",
-        unique=True,
-        partialFilterExpression={"channel_post_id": {"$exists": True, "$ne": None}},
-    )
+        startups_col.update_many(
+            {
+                "$or": [
+                    {"channel_post_id": None},
+                    {"channel_post_id": "None"},
+                    {"channel_post_id": ""},
+                ]
+            },
+            {"$unset": {"channel_post_id": ""}},
+        )
+
+        startups_col.create_index(
+            [("channel_post_id", ASCENDING)],
+            name="channel_post_id_unique_sparse",
+            unique=True,
+            sparse=True,
+        )
+    except Exception:
+        # Bu index yaratilmasa ham bot ishga tushsin; keyin log orqali tekshiriladi.
+        logging.exception("Ensure channel_post_id index failed")
 
     db[STARTUP_MEMBERS_COLLECTION].create_index([("id", ASCENDING)], unique=True)
     db[STARTUP_MEMBERS_COLLECTION].create_index(
