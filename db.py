@@ -1,5 +1,6 @@
 # db.py - MongoDB version
 import calendar
+import logging
 import os
 import sqlite3
 import sys
@@ -210,14 +211,27 @@ def _ensure_indexes():
     db[USERS_COLLECTION].create_index([("user_id", ASCENDING)], unique=True)
     db[USERS_COLLECTION].create_index([("joined_at", DESCENDING)])
 
-    db[STARTUPS_COLLECTION].create_index([("id", ASCENDING)], unique=True)
-    db[STARTUPS_COLLECTION].create_index([("owner_id", ASCENDING)])
-    db[STARTUPS_COLLECTION].create_index([("status", ASCENDING), ("created_at", DESCENDING)])
-    db[STARTUPS_COLLECTION].create_index([("category", ASCENDING), ("status", ASCENDING)])
-    db[STARTUPS_COLLECTION].create_index(
+    startups_col = db[STARTUPS_COLLECTION]
+    startups_col.create_index([("id", ASCENDING)], unique=True)
+    startups_col.create_index([("owner_id", ASCENDING)])
+    startups_col.create_index([("status", ASCENDING), ("created_at", DESCENDING)])
+    startups_col.create_index([("category", ASCENDING), ("status", ASCENDING)])
+
+    # Old index (`unique+sparse`) null qiymatlarni ham unique deb oladi va
+    # startup yaratishda DuplicateKey beradi. Uni partial indexga almashtiramiz.
+    for idx in startups_col.list_indexes():
+        keys = list((idx.get("key") or {}).items())
+        if keys == [("channel_post_id", 1)] and idx.get("name") != "channel_post_id_unique_not_null":
+            try:
+                startups_col.drop_index(idx["name"])
+            except Exception:
+                logging.exception("Drop old channel_post_id index failed")
+
+    startups_col.create_index(
         [("channel_post_id", ASCENDING)],
+        name="channel_post_id_unique_not_null",
         unique=True,
-        sparse=True,
+        partialFilterExpression={"channel_post_id": {"$exists": True, "$ne": None}},
     )
 
     db[STARTUP_MEMBERS_COLLECTION].create_index([("id", ASCENDING)], unique=True)
@@ -310,6 +324,7 @@ def _migrate_sqlite_to_mongodb():
                 startup_id = _to_int(data.get("id"), None)
                 if startup_id is None:
                     continue
+                channel_post_id = _to_int(data.get("channel_post_id"), None)
                 doc = {
                     "_id": startup_id,
                     "id": startup_id,
@@ -325,9 +340,10 @@ def _migrate_sqlite_to_mongodb():
                     "created_at": data.get("created_at") or _now_iso(),
                     "started_at": data.get("started_at"),
                     "results": data.get("results"),
-                    "channel_post_id": _to_int(data.get("channel_post_id"), None),
                     "current_members": _to_int(data.get("current_members"), 0) or 0,
                 }
+                if channel_post_id is not None:
+                    doc["channel_post_id"] = channel_post_id
                 db[STARTUPS_COLLECTION].replace_one({"_id": startup_id}, doc, upsert=True)
                 migrated["startups"] += 1
 
@@ -868,28 +884,42 @@ def create_startup(
     category: str = "Boshqa",
     max_members: int = 10,
 ) -> Optional[str]:
-    startup_id = _next_sequence("startups")
-    _get_db()[STARTUPS_COLLECTION].insert_one(
-        {
-            "_id": startup_id,
-            "id": startup_id,
-            "name": name,
-            "description": description,
-            "logo": logo,
-            "group_link": group_link,
-            "owner_id": int(owner_id),
-            "required_skills": required_skills or "",
-            "category": category or "Boshqa",
-            "max_members": int(max_members),
-            "status": "pending",
-            "created_at": _now_iso(),
-            "started_at": None,
-            "results": None,
-            "channel_post_id": None,
-            "current_members": 0,
-        }
-    )
-    return str(startup_id)
+    payload = {
+        "name": name,
+        "description": description,
+        "logo": logo,
+        "group_link": group_link,
+        "owner_id": int(owner_id),
+        "required_skills": required_skills or "",
+        "category": category or "Boshqa",
+        "max_members": int(max_members),
+        "status": "pending",
+        "created_at": _now_iso(),
+        "started_at": None,
+        "results": None,
+        "current_members": 0,
+    }
+
+    # Counter/out-of-sync holatlarida bir necha marta urinib ko'ramiz.
+    for _ in range(3):
+        startup_id = _next_sequence("startups")
+        try:
+            _get_db()[STARTUPS_COLLECTION].insert_one(
+                {
+                    "_id": startup_id,
+                    "id": startup_id,
+                    **payload,
+                }
+            )
+            return str(startup_id)
+        except DuplicateKeyError:
+            continue
+        except Exception:
+            logging.exception("Create startup failed")
+            return None
+
+    logging.error("Create startup failed after duplicate key retries")
+    return None
 
 
 def get_startup(startup_id: str) -> Optional[Dict]:

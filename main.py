@@ -1776,15 +1776,31 @@ def process_startup_logo(message):
 
 def process_startup_group_link(message):
     user_id = message.from_user.id
-    
-    if message.text == '🔙 Orqaga':
+    message_text = (message.text or "").strip() if hasattr(message, "text") else ""
+
+    if message_text == '🔙 Orqaga':
         clear_user_data(user_id)
         show_main_menu(message)
         return
-    
+
+    if not message_text:
+        msg = bot.send_message(
+            message.chat.id,
+            "⚠️ <b>Iltimos, Telegram havolasini matn ko'rinishida yuboring.</b>\n\n"
+            "Masalan: https://t.me/GarajHub_uz yoki @GarajHub_uz",
+            reply_markup=create_back_button()
+        )
+        bot.register_next_step_handler(msg, process_startup_group_link)
+        return
+
     # Havola formatini tekshirish
-    link = message.text.strip()
-    if not (link.startswith('https://t.me/') or link.startswith('@')):
+    link = message_text
+    if not (
+        link.startswith('https://t.me/')
+        or link.startswith('http://t.me/')
+        or link.startswith('https://telegram.me/')
+        or link.startswith('@')
+    ):
         msg = bot.send_message(message.chat.id,
                               "⚠️ <b>Noto'g'ri havola format!</b>\n\n"
                               "Iltimos, Telegram guruh yoki kanal havolasini kiriting:\n"
@@ -1809,17 +1825,28 @@ def process_startup_group_link(message):
 
 def process_startup_skills(message):
     user_id = message.from_user.id
-    
-    if message.text == '🔙 Orqaga':
+    message_text = (message.text or "").strip() if hasattr(message, "text") else ""
+
+    if message_text == '🔙 Orqaga':
         clear_user_data(user_id)
         show_main_menu(message)
         return
-    
+
+    if not message_text:
+        msg = bot.send_message(
+            message.chat.id,
+            "⚠️ <b>Iltimos, kerakli mutaxassislarni matn ko'rinishida kiriting.</b>\n\n"
+            "Masalan: Python, Designer, Manager",
+            reply_markup=create_back_button()
+        )
+        bot.register_next_step_handler(msg, process_startup_skills)
+        return
+
     global category_data
     if user_id not in category_data:
         category_data[user_id] = {}
-    
-    skills = message.text.strip()
+
+    skills = message_text
     category_data[user_id]['required_skills'] = skills
     
     msg = bot.send_message(message.chat.id,
@@ -1830,17 +1857,18 @@ def process_startup_skills(message):
 
 def process_startup_max_members(message):
     user_id = message.from_user.id
-    
-    if message.text == '🔙 Orqaga':
+    message_text = (message.text or "").strip() if hasattr(message, "text") else ""
+
+    if message_text == '🔙 Orqaga':
         clear_user_data(user_id)
         show_main_menu(message)
         return
-    
+
     try:
-        max_members = int(message.text)
+        max_members = int(message_text)
         if max_members <= 0:
             raise ValueError
-    except ValueError:
+    except (TypeError, ValueError):
         msg = bot.send_message(message.chat.id,
                               "⚠️ <b>Iltimos, musbat raqam kiriting!</b>\n\n"
                               "Masalan: 10",
@@ -1863,26 +1891,30 @@ def process_startup_max_members(message):
     # Barcha kerakli ma'lumotlarni tekshirish
     required_fields = ['owner_id', 'name', 'description', 'category', 'group_link']
     for field in required_fields:
-        if field not in data:
+        if field not in data or data.get(field) in (None, ''):
             bot.send_message(message.chat.id,
                             f"❌ <b>{field} maydoni topilmadi. Iltimos, qaytadan boshlang.</b>",
                             reply_markup=create_back_button())
             clear_user_data(user_id)
             show_main_menu(message)
             return
-    
+
     # Startup yaratish (escape qilish shu yerda)
-    startup_id = create_startup(
-        name=escape_html(data['name']),
-        description=escape_html(data['description']),
-        logo=data.get('logo'),
-        group_link=data['group_link'],
-        owner_id=data['owner_id'],
-        required_skills=escape_html(data.get('required_skills', '')),
-        category=data.get('category', 'Boshqa'),
-        max_members=data['max_members']
-    )
-    
+    try:
+        startup_id = create_startup(
+            name=escape_html(data['name']),
+            description=escape_html(data['description']),
+            logo=data.get('logo'),
+            group_link=data['group_link'],
+            owner_id=data['owner_id'],
+            required_skills=escape_html(data.get('required_skills', '')),
+            category=data.get('category', 'Boshqa'),
+            max_members=data['max_members']
+        )
+    except Exception as e:
+        logging.error(f"Startup create xatosi: {e}")
+        startup_id = None
+
     if not startup_id:
         bot.send_message(message.chat.id,
                         "❌ <b>Startup yaratishda xatolik yuz berdi!</b>\n\n"
@@ -1920,47 +1952,60 @@ def process_startup_max_members(message):
                 InlineKeyboardButton('🤝 Referal', callback_data='open_referral')
             )
             bot.send_message(message.chat.id, text, reply_markup=markup)
-    
-    # Adminga xabar
-    startup = get_startup(startup_id)
-    user = get_user(data['owner_id'])
-    owner_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else "Noma'lum"
-    
-    text = (
-        f"🆕 <b>Yangi startup yaratildi!</b>\n\n"
-        f"🎯 <b>Nomi:</b> {startup['name']}\n"
-        f"📌 <b>Tavsif:</b> {startup['description'][:200]}...\n"
-        f"🏷️ <b>Kategoriya:</b> {startup.get('category', '—')}\n"
-        f"🔧 <b>Kerak:</b> {startup.get('required_skills', '—')}\n"
-        f"👥 <b>Maksimal a'zolar:</b> {startup.get('max_members', '—')}\n\n"
-        f"👤 <b>Muallif:</b> {owner_name}\n"
-        f"📱 <b>Aloqa:</b> @{user.get('username', '—')}"
-    )
-    
-    markup = InlineKeyboardMarkup()
-    markup.add(
-        InlineKeyboardButton('✅ Tasdiqlash', callback_data=f'admin_approve_{startup_id}'),
-        InlineKeyboardButton('❌ Rad etish', callback_data=f'admin_reject_{startup_id}')
-    )
-    
-    admin_review_messages = []
-    for admin_chat_id in ADMIN_IDS:
-        try:
-            if startup.get('logo'):
-                sent_msg = bot.send_photo(admin_chat_id, startup['logo'], caption=text, reply_markup=markup)
-            else:
-                sent_msg = bot.send_message(admin_chat_id, text, reply_markup=markup)
-            admin_review_messages.append({"chat_id": admin_chat_id, "message_id": sent_msg.message_id})
-        except Exception as e:
-            logging.error(f"Adminga xabar yuborishda xatolik ({admin_chat_id}): {e}")
-    if admin_review_messages:
-        try:
-            set_startup_admin_review_messages(startup_id, admin_review_messages)
-        except Exception as e:
-            logging.error(f"Startup review messages saqlashda xatolik: {e}")
-    
-    # Ma'lumotlarni tozalash
-    clear_user_data(user_id)
+
+    try:
+        # Adminga xabar
+        startup = get_startup(startup_id) or {}
+        user = get_user(data['owner_id']) or {}
+        owner_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() or "Noma'lum"
+        username = user.get('username')
+        contact_username = f"@{username}" if username else "—"
+
+        startup_name = startup.get('name') or escape_html(data.get('name', "Noma'lum"))
+        startup_description = startup.get('description') or escape_html(data.get('description', ''))
+        short_description = startup_description[:200] + ("..." if len(startup_description) > 200 else "")
+        startup_category = startup.get('category', data.get('category', 'Boshqa'))
+        startup_skills = startup.get('required_skills', escape_html(data.get('required_skills', '')))
+        startup_max_members = startup.get('max_members', data.get('max_members', '—'))
+        startup_logo = startup.get('logo') if startup else data.get('logo')
+
+        text = (
+            f"🆕 <b>Yangi startup yaratildi!</b>\n\n"
+            f"🎯 <b>Nomi:</b> {startup_name}\n"
+            f"📌 <b>Tavsif:</b> {short_description}\n"
+            f"🏷️ <b>Kategoriya:</b> {startup_category}\n"
+            f"🔧 <b>Kerak:</b> {startup_skills}\n"
+            f"👥 <b>Maksimal a'zolar:</b> {startup_max_members}\n\n"
+            f"👤 <b>Muallif:</b> {owner_name}\n"
+            f"📱 <b>Aloqa:</b> {contact_username}"
+        )
+
+        markup = InlineKeyboardMarkup()
+        markup.add(
+            InlineKeyboardButton('✅ Tasdiqlash', callback_data=f'admin_approve_{startup_id}'),
+            InlineKeyboardButton('❌ Rad etish', callback_data=f'admin_reject_{startup_id}')
+        )
+
+        admin_review_messages = []
+        for admin_chat_id in ADMIN_IDS:
+            try:
+                if startup_logo:
+                    sent_msg = bot.send_photo(admin_chat_id, startup_logo, caption=text, reply_markup=markup)
+                else:
+                    sent_msg = bot.send_message(admin_chat_id, text, reply_markup=markup)
+                admin_review_messages.append({"chat_id": admin_chat_id, "message_id": sent_msg.message_id})
+            except Exception as e:
+                logging.error(f"Adminga xabar yuborishda xatolik ({admin_chat_id}): {e}")
+        if admin_review_messages:
+            try:
+                set_startup_admin_review_messages(startup_id, admin_review_messages)
+            except Exception as e:
+                logging.error(f"Startup review messages saqlashda xatolik: {e}")
+    except Exception as e:
+        logging.error(f"Startup admin notify xatosi: {e}")
+    finally:
+        # Ma'lumotlarni tozalash
+        clear_user_data(user_id)
 
 # 📌 STARTAPLARIM BO'LIMI
 @bot.message_handler(func=lambda message: message.text == '📌 Startaplarim')
