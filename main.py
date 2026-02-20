@@ -1,6 +1,7 @@
 import os
 import logging
 import sys
+import html
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 import telebot
@@ -135,6 +136,16 @@ def escape_html(text):
         text = text.replace(old, new)
     
     return text
+
+
+def sanitize_html_text(value, default: str = "—") -> str:
+    """Raw yoki oldindan escape qilingan matnni xavfsiz HTML ko'rinishga keltiradi."""
+    if value is None:
+        return default
+    raw = str(value).strip()
+    if not raw:
+        return default
+    return escape_html(html.unescape(raw))
 
 # Database import
 from db import (
@@ -458,15 +469,22 @@ def handle_photo_messages(message):
         return
 
     user = get_user(user_id) or {}
-    name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() or "Noma'lum"
+    name = sanitize_html_text(
+        f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() or "Noma'lum",
+        "Noma'lum"
+    )
+    username_raw = (user.get('username') or '').strip()
+    username_text = f"@{sanitize_html_text(username_raw, '')}" if username_raw else "—"
+    phone_text = sanitize_html_text(user.get('phone', '—'), "—")
+    card_text = sanitize_html_text(card or "Admin tomonidan qoshiladi", "—")
     text = (
         "🧾 <b>Yangi Pro to'lov cheki</b>\n\n"
         f"👤 <b>Foydalanuvchi:</b> {name}\n"
         f"🆔 <b>ID:</b> {user_id}\n"
-        f"👤 <b>Username:</b> @{user.get('username', '—')}\n"
-        f"📞 <b>Telefon:</b> {user.get('phone', '—')}\n"
+        f"👤 <b>Username:</b> {username_text}\n"
+        f"📞 <b>Telefon:</b> {phone_text}\n"
         f"💳 <b>Summa:</b> {amount} so'm\n"
-        f'💳 <b>Karta:</b> {card or "Admin tomonidan qoshiladi"}\n'
+        f"💳 <b>Karta:</b> {card_text}\n"
         f"🧾 <b>Payment ID:</b> {payment_id}"
     )
     markup = InlineKeyboardMarkup()
@@ -652,14 +670,14 @@ def show_profile(message):
         
         profile_text = (
             "👤 <b>Profil ma'lumotlari:</b>\n\n"
-            f"🧑 <b>Ism:</b> {format_value(user.get('first_name'))}\n"
-            f"🧾 <b>Familiya:</b> {format_value(user.get('last_name'))}\n"
-            f"⚧️ <b>Jins:</b> {format_value(user.get('gender'))}\n"
-            f"📞 <b>Telefon:</b> {format_value(user.get('phone'))}\n"
-            f"🎂 <b>Tug'ilgan sana:</b> {format_value(user.get('birth_date'))}\n"
-            f"🔧 <b>Mutaxassislik:</b> {format_value(user.get('specialization'))}\n"
-            f"📈 <b>Tajriba:</b> {format_value(user.get('experience'))}\n"
-            f"📝 <b>Bio:</b> {format_value(user.get('bio'))}\n\n"
+            f"🧑 <b>Ism:</b> {sanitize_html_text(format_value(user.get('first_name')))}\n"
+            f"🧾 <b>Familiya:</b> {sanitize_html_text(format_value(user.get('last_name')))}\n"
+            f"⚧️ <b>Jins:</b> {sanitize_html_text(format_value(user.get('gender')))}\n"
+            f"📞 <b>Telefon:</b> {sanitize_html_text(format_value(user.get('phone')))}\n"
+            f"🎂 <b>Tug'ilgan sana:</b> {sanitize_html_text(format_value(user.get('birth_date')))}\n"
+            f"🔧 <b>Mutaxassislik:</b> {sanitize_html_text(format_value(user.get('specialization')))}\n"
+            f"📈 <b>Tajriba:</b> {sanitize_html_text(format_value(user.get('experience')))}\n"
+            f"📝 <b>Bio:</b> {sanitize_html_text(format_value(user.get('bio')))}\n\n"
             "🛠 <b>Tahrirlash uchun tugmalardan birini tanlang:</b>"
         )
         
@@ -978,7 +996,14 @@ def show_recommended_page(chat_id, page, message_id=None):
     max_members = startup.get('max_members', 10)
     
     user = get_user(startup['owner_id'])
-    owner_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else "Noma'lum"
+    owner_name = sanitize_html_text(
+        f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else "Noma'lum",
+        "Noma'lum"
+    )
+    startup_name = sanitize_html_text(startup.get('name'), "Noma'lum")
+    startup_category = sanitize_html_text(startup.get('category'), "—")
+    startup_skills = sanitize_html_text(startup.get('required_skills'), "—")
+    startup_description = sanitize_html_text(startup.get('description'), "—")
     
     total_pages = max(1, (total + per_page - 1) // per_page)
     
@@ -995,13 +1020,13 @@ def show_recommended_page(chat_id, page, message_id=None):
     
     text = (
         f"💡 <b>Tavsiya {page}/{total_pages}</b>\n\n"
-        f"🎯 <b>Nomi:</b> {startup['name']}\n"
-        f"📅 <b>Boshlangan sana:</b> {start_date}\n"
+        f"🎯 <b>Nomi:</b> {startup_name}\n"
+        f"📅 <b>Boshlangan sana:</b> {sanitize_html_text(start_date, '—')}\n"
         f"👤 <b>Muallif:</b> {owner_name}\n"
-        f"🏷️ <b>Kategoriya:</b> {startup.get('category', '—')}\n"
-        f"🔧 <b>Kerakli mutaxassislar:</b> {startup.get('required_skills', '—')}\n"
+        f"🏷️ <b>Kategoriya:</b> {startup_category}\n"
+        f"🔧 <b>Kerakli mutaxassislar:</b> {startup_skills}\n"
         f"👥 <b>A'zolar:</b> {current_members} / {max_members}\n"
-        f"📌 <b>Tavsif:</b> {startup['description']}"
+        f"📌 <b>Tavsif:</b> {startup_description}"
     )
     
     markup = InlineKeyboardMarkup()
@@ -1189,14 +1214,18 @@ def show_category_startups(chat_id, category_name, page, message_id=None):
         
         for i, startup in enumerate(page_startups, start=start_idx+1):
             user = get_user(startup['owner_id'])
-            owner_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else "Noma'lum"
+            owner_name = sanitize_html_text(
+                f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else "Noma'lum",
+                "Noma'lum"
+            )
+            startup_name = sanitize_html_text(startup.get('name'), "Noma'lum")
             
             # A'zolar sonini olish
             current_members = get_startup_member_count(startup['_id'])
             max_members = startup.get('max_members', 10)
             
             status_emoji = '✅' if current_members < max_members else '❌'
-            text += f"{i}. <b>{startup['name']}</b> – {owner_name} {status_emoji}\n"
+            text += f"{i}. <b>{startup_name}</b> – {owner_name} {status_emoji}\n"
         
         markup = InlineKeyboardMarkup(row_width=5)
         
@@ -1269,7 +1298,14 @@ def handle_category_startup_view(call):
         max_members = startup.get('max_members', 10)
         
         user = get_user(startup['owner_id'])
-        owner_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else "Noma'lum"
+        owner_name = sanitize_html_text(
+            f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else "Noma'lum",
+            "Noma'lum"
+        )
+        startup_name = sanitize_html_text(startup.get('name'), "Noma'lum")
+        startup_category = sanitize_html_text(startup.get('category'), "—")
+        startup_skills = sanitize_html_text(startup.get('required_skills'), "—")
+        startup_description = sanitize_html_text(startup.get('description'), "—")
         
         # Sanani formatlash
         start_date = startup.get('started_at', '—')
@@ -1283,13 +1319,13 @@ def handle_category_startup_view(call):
                     pass
         
         text = (
-            f"🎯 <b>Nomi:</b> {startup['name']}\n"
-            f"📅 <b>Boshlangan sana:</b> {start_date}\n"
+            f"🎯 <b>Nomi:</b> {startup_name}\n"
+            f"📅 <b>Boshlangan sana:</b> {sanitize_html_text(start_date, '—')}\n"
             f"👤 <b>Muallif:</b> {owner_name}\n"
-            f"🏷️ <b>Kategoriya:</b> {startup.get('category', '—')}\n"
-            f"🔧 <b>Kerakli mutaxassislar:</b> {startup.get('required_skills', '—')}\n"
+            f"🏷️ <b>Kategoriya:</b> {startup_category}\n"
+            f"🔧 <b>Kerakli mutaxassislar:</b> {startup_skills}\n"
             f"👥 <b>A'zolar:</b> {current_members} / {max_members}\n"
-            f"📌 <b>Tavsif:</b> {startup['description']}"
+            f"📌 <b>Tavsif:</b> {startup_description}"
         )
         
         markup = InlineKeyboardMarkup()
@@ -1491,12 +1527,14 @@ def approve_join_request(call):
         if startup:
             # Foydalanuvchiga xabar
             try:
+                startup_name = sanitize_html_text(startup.get('name'), "Noma'lum")
+                startup_group_link = sanitize_html_text(startup.get('group_link'), "—")
                 bot.send_message(
                     user_id,
                     f"🎉 <b>Tabriklaymiz!</b>\n\n"
                     f"✅ Sizning so'rovingiz qabul qilindi.\n\n"
-                    f"🎯 <b>Startup:</b> {startup['name']}\n"
-                    f"🔗 <b>Guruhga qo'shilish:</b> {startup.get('group_link', '—')}"
+                    f"🎯 <b>Startup:</b> {startup_name}\n"
+                    f"🔗 <b>Guruhga qo'shilish:</b> {startup_group_link}"
                 )
             except Exception as e:
                 logging.error(f"Foydalanuvchiga xabar yuborishda xatolik: {e}")
@@ -1957,15 +1995,18 @@ def process_startup_max_members(message):
         # Adminga xabar
         startup = get_startup(startup_id) or {}
         user = get_user(data['owner_id']) or {}
-        owner_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() or "Noma'lum"
-        username = user.get('username')
-        contact_username = f"@{username}" if username else "—"
+        owner_name = sanitize_html_text(
+            f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() or "Noma'lum",
+            "Noma'lum"
+        )
+        username = (user.get('username') or "").strip()
+        contact_username = f"@{sanitize_html_text(username, '')}" if username else "—"
 
-        startup_name = startup.get('name') or escape_html(data.get('name', "Noma'lum"))
-        startup_description = startup.get('description') or escape_html(data.get('description', ''))
+        startup_name = sanitize_html_text(startup.get('name') or data.get('name'), "Noma'lum")
+        startup_description = sanitize_html_text(startup.get('description') or data.get('description'), "—")
         short_description = startup_description[:200] + ("..." if len(startup_description) > 200 else "")
-        startup_category = startup.get('category', data.get('category', 'Boshqa'))
-        startup_skills = startup.get('required_skills', escape_html(data.get('required_skills', '')))
+        startup_category = sanitize_html_text(startup.get('category', data.get('category', 'Boshqa')), "Boshqa")
+        startup_skills = sanitize_html_text(startup.get('required_skills', data.get('required_skills', '')), "—")
         startup_max_members = startup.get('max_members', data.get('max_members', '—'))
         startup_logo = startup.get('logo') if startup else data.get('logo')
 
@@ -2057,7 +2098,8 @@ def show_my_startups_page(chat_id, user_id, page, message_id=None):
             'rejected': '❌'
         }.get(startup['status'], '❓')
         
-        text += f"{i}. {startup['name']} – {status_emoji}\n"
+        startup_name = sanitize_html_text(startup.get('name'), "Noma'lum")
+        text += f"{i}. {startup_name} – {status_emoji}\n"
     
     markup = InlineKeyboardMarkup(row_width=5)
     
@@ -2131,7 +2173,13 @@ def handle_my_startup_number(call):
 
 def view_my_startup_details(chat_id, user_id, startup, message_id=None):
     user = get_user(startup['owner_id'])
-    owner_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else "Noma'lum"
+    owner_name = sanitize_html_text(
+        f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else "Noma'lum",
+        "Noma'lum"
+    )
+    startup_name = sanitize_html_text(startup.get('name'), "Noma'lum")
+    startup_category = sanitize_html_text(startup.get('category'), "—")
+    startup_description = sanitize_html_text(startup.get('description'), "—")
     
     # A'zolar soni
     current_members = get_startup_member_count(startup['_id'])
@@ -2157,13 +2205,13 @@ def view_my_startup_details(chat_id, user_id, startup, message_id=None):
                 pass
     
     text = (
-        f"🎯 <b>Nomi:</b> {startup['name']}\n"
+        f"🎯 <b>Nomi:</b> {startup_name}\n"
         f"📊 <b>Holati:</b> {status_text}\n"
-        f"📅 <b>Boshlanish sanasi:</b> {start_date}\n"
+        f"📅 <b>Boshlanish sanasi:</b> {sanitize_html_text(start_date, '—')}\n"
         f"👤 <b>Muallif:</b> {owner_name}\n"
-        f"🏷️ <b>Kategoriya:</b> {startup.get('category', '—')}\n"
+        f"🏷️ <b>Kategoriya:</b> {startup_category}\n"
         f"👥 <b>A'zolar:</b> {current_members} / {max_members}\n"
-        f"📌 <b>Tavsif:</b> {startup['description']}"
+        f"📌 <b>Tavsif:</b> {startup_description}"
     )
     
     markup = InlineKeyboardMarkup()
@@ -2242,14 +2290,16 @@ def view_startup_members(call):
                 member_name = f"{member.get('first_name', '')} {member.get('last_name', '')}".strip()
                 if not member_name:
                     member_name = f"User {member.get('user_id', '')}"
+                member_name = sanitize_html_text(member_name, "Noma'lum")
                 
                 bio_short = member.get('bio', '')
                 if bio_short and len(bio_short) > 30:
                     bio_short = bio_short[:30] + '...'
+                bio_short = sanitize_html_text(bio_short, "")
                 
                 text += f"{i}. <b>{member_name}</b>\n"
                 if member.get('phone'):
-                    text += f"   📱 {member.get('phone')}\n"
+                    text += f"   📱 {sanitize_html_text(member.get('phone'), '—')}\n"
                 if bio_short:
                     text += f"   📝 {bio_short}\n"
                 text += "\n"
@@ -2425,8 +2475,10 @@ def show_joined_startups_page(chat_id, user_id, startups, page, message_id=None)
         current_members = get_startup_member_count(startup['_id'])
         max_members = startup.get('max_members', 10)
         
-        text += f"{i}. <b>{startup['name']}</b> {status_emoji}\n"
-        text += f"   👥 {current_members}/{max_members} | 🏷️ {startup.get('category', '—')}\n\n"
+        startup_name = sanitize_html_text(startup.get('name'), "Noma'lum")
+        startup_category = sanitize_html_text(startup.get('category'), "—")
+        text += f"{i}. <b>{startup_name}</b> {status_emoji}\n"
+        text += f"   👥 {current_members}/{max_members} | 🏷️ {startup_category}\n\n"
     
     markup = InlineKeyboardMarkup(row_width=5)
     
@@ -2503,7 +2555,15 @@ def handle_joined_startup_view(call):
         
         # Startup muallifini olish
         user = get_user(startup['owner_id'])
-        owner_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else "Noma'lum"
+        owner_name = sanitize_html_text(
+            f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else "Noma'lum",
+            "Noma'lum"
+        )
+        startup_name = sanitize_html_text(startup.get('name'), "Noma'lum")
+        startup_category = sanitize_html_text(startup.get('category'), "—")
+        startup_skills = sanitize_html_text(startup.get('required_skills'), "—")
+        startup_description = sanitize_html_text(startup.get('description'), "—")
+        startup_group_link = sanitize_html_text(startup.get('group_link'), "—")
         
         # A'zolar sonini olish
         current_members = get_startup_member_count(startup_id)
@@ -2522,14 +2582,14 @@ def handle_joined_startup_view(call):
         
         text = (
             f"🤝 <b>Qo'shilgan startup:</b>\n\n"
-            f"🎯 <b>Nomi:</b> {startup['name']}\n"
-            f"📅 <b>Boshlangan sana:</b> {start_date}\n"
+            f"🎯 <b>Nomi:</b> {startup_name}\n"
+            f"📅 <b>Boshlangan sana:</b> {sanitize_html_text(start_date, '—')}\n"
             f"👤 <b>Muallif:</b> {owner_name}\n"
-            f"🏷️ <b>Kategoriya:</b> {startup.get('category', '—')}\n"
-            f"🔧 <b>Kerakli mutaxassislar:</b> {startup.get('required_skills', '—')}\n"
+            f"🏷️ <b>Kategoriya:</b> {startup_category}\n"
+            f"🔧 <b>Kerakli mutaxassislar:</b> {startup_skills}\n"
             f"👥 <b>A'zolar:</b> {current_members} / {max_members}\n"
-            f"📌 <b>Tavsif:</b> {startup['description']}\n"
-            f"🔗 <b>Guruh havolasi:</b> {startup.get('group_link', '—')}"
+            f"📌 <b>Tavsif:</b> {startup_description}\n"
+            f"🔗 <b>Guruh havolasi:</b> {startup_group_link}"
         )
         
         markup = InlineKeyboardMarkup()
@@ -2637,8 +2697,9 @@ def admin_dashboard(message):
             name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip()
             if not name:
                 name = "Noma'lum"
-            
-            dashboard_text += f"{i}. <b>{name}</b>\n"
+
+            safe_name = sanitize_html_text(name, "Noma'lum")
+            dashboard_text += f"{i}. <b>{safe_name}</b>\n"
         dashboard_text += "\n"
     
     if recent_startups:
@@ -2651,7 +2712,8 @@ def admin_dashboard(message):
                 'rejected': '❌'
             }.get(startup['status'], '❓')
             
-            dashboard_text += f"{i}. {startup['name']} {status_emoji}\n"
+            startup_name = sanitize_html_text(startup.get('name'), "Noma'lum")
+            dashboard_text += f"{i}. {startup_name} {status_emoji}\n"
     
     markup = InlineKeyboardMarkup()
     markup.add(
@@ -2695,15 +2757,20 @@ def admin_pro_payments(message):
     bot.send_message(message.chat.id, f"🧾 <b>Pending to'lovlar:</b> {len(pending)} ta")
     for pay in pending:
         user = get_user(pay['user_id']) or {}
-        name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() or "Noma'lum"
+        name = sanitize_html_text(
+            f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() or "Noma'lum",
+            "Noma'lum"
+        )
+        card_value = sanitize_html_text(pay.get('card_number', ''), "—")
+        status_value = sanitize_html_text(pay.get('status', 'pending'), "pending")
         text = (
             "🧾 <b>Pro to'lov</b>\n\n"
             f"🧾 <b>ID:</b> {pay['id']}\n"
             f"👤 <b>Foydalanuvchi:</b> {name}\n"
             f"🆔 <b>User ID:</b> {pay['user_id']}\n"
             f"💳 <b>Summa:</b> {pay['amount']} so'm\n"
-            f"💳 <b>Karta:</b> {pay.get('card_number', '')}\n"
-            f"⏳ <b>Holat:</b> {pay.get('status', 'pending')}"
+            f"💳 <b>Karta:</b> {card_value}\n"
+            f"⏳ <b>Holat:</b> {status_value}"
         )
         markup = InlineKeyboardMarkup()
         markup.add(
@@ -2762,9 +2829,13 @@ def show_pending_startups(call):
         
         for i, startup in enumerate(startups, start=(page-1)*5+1):
             user = get_user(startup['owner_id'])
-            owner_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else "Noma'lum"
-            
-            text += f"{i}. <b>{startup['name']}</b> – {owner_name}\n\n"
+            owner_name = sanitize_html_text(
+                f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else "Noma'lum",
+                "Noma'lum"
+            )
+            startup_name = sanitize_html_text(startup.get('name'), "Noma'lum")
+
+            text += f"{i}. <b>{startup_name}</b> – {owner_name}\n\n"
         
         markup = InlineKeyboardMarkup()
         
@@ -2780,7 +2851,8 @@ def show_pending_startups(call):
         
         # Startup tanlash
         for i, startup in enumerate(startups):
-            startup_name_short = startup['name'][:20] + '...' if len(startup['name']) > 20 else startup['name']
+            startup_name_raw = str(startup.get('name') or "Noma'lum")
+            startup_name_short = startup_name_raw[:20] + '...' if len(startup_name_raw) > 20 else startup_name_raw
             markup.add(InlineKeyboardButton(f'{i+1}. {startup_name_short}', 
                                            callback_data=f'admin_view_startup_{startup["_id"]}'))
         
@@ -2808,21 +2880,37 @@ def admin_view_startup_details(call):
             return
         
         user = get_user(startup['owner_id'])
-        owner_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else "Noma'lum"
-        owner_contact = f"@{user.get('username', '')}" if user and user.get('username') else f"ID: {startup['owner_id']}"
+        owner_name = sanitize_html_text(
+            f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else "Noma'lum",
+            "Noma'lum"
+        )
+        owner_contact = (
+            f"@{sanitize_html_text(user.get('username', ''), '')}"
+            if user and user.get('username')
+            else f"ID: {startup['owner_id']}"
+        )
+
+        startup_name = sanitize_html_text(startup.get('name'), "Noma'lum")
+        startup_description = sanitize_html_text(startup.get('description'), "—")
+        startup_category = sanitize_html_text(startup.get('category'), "—")
+        startup_skills = sanitize_html_text(startup.get('required_skills'), "—")
+        startup_group_link = sanitize_html_text(startup.get('group_link'), "—")
+        created_at_raw = startup.get('created_at', '—')
+        created_at_text = sanitize_html_text(str(created_at_raw)[:10] if created_at_raw else "—", "—")
+        status_text = sanitize_html_text(startup.get('status'), "—")
         
         text = (
             f"🖼 <b>Startup ma'lumotlari</b>\n\n"
-            f"🎯 <b>Nomi:</b> {startup['name']}\n"
-            f"📌 <b>Tavsif:</b> {startup['description']}\n\n"
+            f"🎯 <b>Nomi:</b> {startup_name}\n"
+            f"📌 <b>Tavsif:</b> {startup_description}\n\n"
             f"👤 <b>Muallif:</b> {owner_name}\n"
             f"📱 <b>Aloqa:</b> {owner_contact}\n"
-            f"🏷️ <b>Kategoriya:</b> {startup.get('category', '—')}\n"
-            f"🔧 <b>Kerak:</b> {startup.get('required_skills', '—')}\n"
+            f"🏷️ <b>Kategoriya:</b> {startup_category}\n"
+            f"🔧 <b>Kerak:</b> {startup_skills}\n"
             f"👥 <b>Maksimal a'zolar:</b> {startup.get('max_members', '—')}\n"
-            f"🔗 <b>Guruh havolasi:</b> {startup['group_link']}\n"
-            f"📅 <b>Yaratilgan sana:</b> {startup.get('created_at', '—')[:10]}\n"
-            f"📊 <b>Holati:</b> {startup['status']}"
+            f"🔗 <b>Guruh havolasi:</b> {startup_group_link}\n"
+            f"📅 <b>Yaratilgan sana:</b> {created_at_text}\n"
+            f"📊 <b>Holati:</b> {status_text}"
         )
         
         markup = InlineKeyboardMarkup()
@@ -2885,24 +2973,32 @@ def admin_approve_startup(call):
         
         # Egaga xabar
         try:
+            safe_startup_name = sanitize_html_text(startup.get('name'), "Noma'lum")
             bot.send_message(
                 startup['owner_id'],
                 f"🎉 <b>Tabriklaymiz!</b>\n\n"
-                f"✅ '<b>{startup['name']}</b>' startupingiz tasdiqlandi va kanalga joylandi!"
+                f"✅ '<b>{safe_startup_name}</b>' startupingiz tasdiqlandi va kanalga joylandi!"
             )
         except:
             pass
         
         # Kanalga post joylash
         user = get_user(startup['owner_id'])
-        owner_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else "Noma'lum"
+        owner_name = sanitize_html_text(
+            f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else "Noma'lum",
+            "Noma'lum"
+        )
+        startup_name = sanitize_html_text(startup.get('name'), "Noma'lum")
+        startup_description = sanitize_html_text(startup.get('description'), "—")
+        startup_category = sanitize_html_text(startup.get('category'), "—")
+        startup_skills = sanitize_html_text(startup.get('required_skills'), "—")
         
         channel_text = (
-            f"🚀 <b>{startup['name']}</b>\n\n"
-            f"📝 {startup['description']}\n\n"
+            f"🚀 <b>{startup_name}</b>\n\n"
+            f"📝 {startup_description}\n\n"
             f"👤 <b>Muallif:</b> {owner_name}\n"
-            f"🏷️ <b>Kategoriya:</b> {startup.get('category', '—')}\n"
-            f"🔧 <b>Kerakli mutaxassislar:</b>\n{startup.get('required_skills', '—')}\n\n"
+            f"🏷️ <b>Kategoriya:</b> {startup_category}\n"
+            f"🔧 <b>Kerakli mutaxassislar:</b>\n{startup_skills}\n\n"
             f"👥 <b>A'zolar:</b> 0 / {startup.get('max_members', '—')}\n\n"
             f"➕ <b>O'z startupingizni yaratish uchun:</b> @{bot.get_me().username}"
         )
@@ -2959,10 +3055,11 @@ def admin_reject_startup(call):
 
         # Egaga xabar
         try:
+            safe_startup_name = sanitize_html_text(startup.get('name'), "Noma'lum")
             bot.send_message(
                 startup['owner_id'],
                 f"❌ <b>Xabar!</b>\n\n"
-                f"Sizning '<b>{startup['name']}</b>' startupingiz rad etildi."
+                f"Sizning '<b>{safe_startup_name}</b>' startupingiz rad etildi."
             )
         except:
             pass
@@ -3006,9 +3103,14 @@ def admin_users(message):
         name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip()
         if not name:
             name = "Noma'lum"
-        
-        text += f"{i}. <b>{name}</b>\n"
-        text += f"   👤 @{user.get('username', '—')} | 📅 {joined_date}\n\n"
+
+        safe_name = sanitize_html_text(name, "Noma'lum")
+        username_raw = (user.get('username') or '').strip()
+        username_text = f"@{sanitize_html_text(username_raw, '')}" if username_raw else "—"
+        joined_text = sanitize_html_text(joined_date, "—")
+
+        text += f"{i}. <b>{safe_name}</b>\n"
+        text += f"   👤 {username_text} | 📅 {joined_text}\n\n"
     
     markup = InlineKeyboardMarkup()
     markup.add(
@@ -3196,15 +3298,20 @@ def handle_pro_pay_view(call):
             bot.answer_callback_query(call.id, "Chek topilmadi", show_alert=True)
             return
         user = get_user(payment['user_id']) or {}
-        name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() or "Noma'lum"
+        name = sanitize_html_text(
+            f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() or "Noma'lum",
+            "Noma'lum"
+        )
+        card_value = sanitize_html_text(payment.get('card_number', ''), "—")
+        status_value = sanitize_html_text(payment.get('status', 'pending'), "pending")
         text = (
             "🧾 <b>Pro to'lov cheki</b>\n\n"
             f"🧾 <b>ID:</b> {payment['id']}\n"
             f"👤 <b>Foydalanuvchi:</b> {name}\n"
             f"🆔 <b>User ID:</b> {payment['user_id']}\n"
             f"💳 <b>Summa:</b> {payment['amount']} so'm\n"
-            f"💳 <b>Karta:</b> {payment.get('card_number', '')}\n"
-            f"⏳ <b>Holat:</b> {payment.get('status', 'pending')}"
+            f"💳 <b>Karta:</b> {card_value}\n"
+            f"⏳ <b>Holat:</b> {status_value}"
         )
         markup = InlineKeyboardMarkup()
         markup.add(
@@ -3539,15 +3646,22 @@ def update_channel_post(startup_id: str):
         max_members = startup.get('max_members', 10)
         
         user = get_user(startup['owner_id'])
-        owner_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else "Noma'lum"
+        owner_name = sanitize_html_text(
+            f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else "Noma'lum",
+            "Noma'lum"
+        )
+        startup_name = sanitize_html_text(startup.get('name'), "Noma'lum")
+        startup_description = sanitize_html_text(startup.get('description'), "—")
+        startup_category = sanitize_html_text(startup.get('category'), "—")
+        startup_skills = sanitize_html_text(startup.get('required_skills'), "—")
         
         # POST MATNI - HTML formatida
         channel_text = (
-            f"🚀 <b>{startup['name']}</b>\n\n"
-            f"📝 {startup['description']}\n\n"
+            f"🚀 <b>{startup_name}</b>\n\n"
+            f"📝 {startup_description}\n\n"
             f"👤 <b>Muallif:</b> {owner_name}\n"
-            f"🏷️ <b>Kategoriya:</b> {startup.get('category', '—')}\n"
-            f"🔧 <b>Kerakli mutaxassislar:</b>\n{startup.get('required_skills', '—')}\n\n"
+            f"🏷️ <b>Kategoriya:</b> {startup_category}\n"
+            f"🔧 <b>Kerakli mutaxassislar:</b>\n{startup_skills}\n\n"
             f"👥 <b>A'zolar:</b> {current_members} / {max_members}\n\n"
         )
         
