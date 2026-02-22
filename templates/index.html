@@ -5,19 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <title>GarajHub - Admin Panel</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
 </head>
 <body>
-    <!-- Loading screen -->
-    <div id="loadingScreen" class="loading-screen">
-        <div class="loading-content">
-            <div class="loading-spinner"></div>
-            <p>GarajHub Admin Panel yuklanmoqda...</p>
-        </div>
-    </div>
+    <div id="requestBar" class="request-bar" aria-hidden="true"></div>
 
     <div class="container">
         <!-- Yon panel -->
@@ -89,12 +86,18 @@
                 </div>
             </div>
         </aside>
+        <button class="sidebar-overlay" id="sidebarOverlay" aria-label="Menu yopish"></button>
 
         <!-- Asosiy kontent -->
         <main class="main-content">
             <header class="header">
-                <div class="breadcrumb">
-                    <span class="breadcrumb-item active">Asosiy panel</span>
+                <div class="header-main">
+                    <button class="header-sidebar-toggle" id="sidebarToggle" aria-label="Menu ochish">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div class="breadcrumb">
+                        <span class="breadcrumb-item active">Asosiy panel</span>
+                    </div>
                 </div>
                 
                 <div class="header-actions">
@@ -317,9 +320,9 @@
                             <div class="chart-header">
                                 <h3>So'nggi faollik</h3>
                                 <div class="activity-header-actions">
-                                    <button class="activity-filter-btn active" onclick="filterActivity('all')">Hammasi</button>
-                                    <button class="activity-filter-btn" onclick="filterActivity('users')">Foydalanuvchilar</button>
-                                    <button class="activity-filter-btn" onclick="filterActivity('startups')">Startaplar</button>
+                                    <button class="activity-filter-btn active" data-type="all">Hammasi</button>
+                                    <button class="activity-filter-btn" data-type="users">Foydalanuvchilar</button>
+                                    <button class="activity-filter-btn" data-type="startups">Startaplar</button>
                                 </div>
                             </div>
                             <div class="activity-list" id="activityList">

@@ -153,7 +153,7 @@ from db import (
     get_user, save_user, update_user_field,
     create_startup, get_startup, get_startups_by_owner,
     get_pending_startups, get_active_startups, update_startup_status, transition_startup_status, update_startup_results,
-    add_startup_member, get_join_request_id, update_join_request, get_join_request,
+    add_startup_member, get_join_request_id, transition_join_request_status, get_join_request,
     get_startup_members, get_statistics, get_all_users,
     get_recent_users, get_recent_startups, get_completed_startups,
     get_rejected_startups, get_all_startup_members,
@@ -1474,90 +1474,134 @@ def handle_join_startup(call):
 def approve_join_request(call):
     try:
         request_id = call.data.split('_')[2]
-        
+
         # So'rov ma'lumotlarini olish
         member = get_join_request(request_id)
-        
         if not member:
             bot.answer_callback_query(call.id, "❌ So'rov topilmadi!", show_alert=True)
             return
-        
+
         startup_id = str(member['startup_id'])
         user_id = member['user_id']
-        
-        # A'zolar sonini tekshirish
+
         startup = get_startup(startup_id)
         if not startup:
             bot.answer_callback_query(call.id, "❌ Startup topilmadi!", show_alert=True)
             return
-        
+
+        is_owner = startup.get('owner_id') == call.from_user.id
+        if not is_owner and not is_admin_user(call.from_user.id):
+            bot.answer_callback_query(call.id, "❌ Bu so'rovni faqat startup egasi tasdiqlay oladi.", show_alert=True)
+            return
+
+        current_status = (member.get('status') or '').lower()
+        if current_status != 'pending':
+            status_map = {
+                'accepted': "✅ Bu so'rov allaqachon tasdiqlangan.",
+                'rejected': "❌ Bu so'rov allaqachon rad etilgan.",
+            }
+            bot.answer_callback_query(
+                call.id,
+                status_map.get(current_status, "ℹ️ Bu so'rov allaqachon qayta ishlangan."),
+                show_alert=True,
+            )
+            try:
+                label = "tasdiqlangan" if current_status == "accepted" else "rad etilgan"
+                bot.edit_message_text(
+                    f"ℹ️ <b>Bu so'rov allaqachon {label}.</b>\n\nQayta tasdiqlash mumkin emas.",
+                    call.message.chat.id,
+                    call.message.message_id,
+                )
+            except Exception:
+                pass
+            return
+
         current_members = get_startup_member_count(startup_id)
         max_members = startup.get('max_members', 10)
-        
+
         if current_members >= max_members:
-            # So'rovni rad etish
-            update_join_request(request_id, 'rejected')
-            
-            # Egaga xabar
+            rejected = transition_join_request_status(request_id, 'pending', 'rejected')
+            if not rejected:
+                latest = get_join_request(request_id) or {}
+                latest_status = (latest.get('status') or '').lower()
+                status_map = {
+                    'accepted': "✅ Bu so'rov allaqachon tasdiqlangan.",
+                    'rejected': "❌ Bu so'rov allaqachon rad etilgan.",
+                }
+                bot.answer_callback_query(
+                    call.id,
+                    status_map.get(latest_status, "ℹ️ Bu so'rov allaqachon qayta ishlangan."),
+                    show_alert=True,
+                )
+                return
+
             try:
                 bot.edit_message_text(
                     "❌ <b>A'zolar to'ldi, so'rov rad etildi.</b>",
                     call.message.chat.id,
-                    call.message.message_id
+                    call.message.message_id,
                 )
-            except:
+            except Exception:
                 pass
+
             bot.answer_callback_query(call.id, "❌ A'zolar to'ldi!")
-            
-            # Foydalanuvchiga xabar
+
             try:
                 bot.send_message(
                     user_id,
                     "❌ <b>Afsus, startupda joy qolmagan.</b>\n\n"
-                    "Boshqa startaplarga qo'shilishingiz mumkin."
+                    "Boshqa startaplarga qo'shilishingiz mumkin.",
                 )
-            except:
+            except Exception:
                 pass
             return
-        
-        # So'rov holatini yangilash
-        update_join_request(request_id, 'accepted')
-        
-        # A'zolar sonini yangilash
+
+        accepted = transition_join_request_status(request_id, 'pending', 'accepted')
+        if not accepted:
+            latest = get_join_request(request_id) or {}
+            latest_status = (latest.get('status') or '').lower()
+            status_map = {
+                'accepted': "✅ Bu so'rov allaqachon tasdiqlangan.",
+                'rejected': "❌ Bu so'rov allaqachon rad etilgan.",
+            }
+            bot.answer_callback_query(
+                call.id,
+                status_map.get(latest_status, "ℹ️ Bu so'rov allaqachon qayta ishlangan."),
+                show_alert=True,
+            )
+            return
+
         update_startup_member_count(startup_id)
-        
-        if startup:
-            # Foydalanuvchiga xabar
-            try:
-                startup_name = sanitize_html_text(startup.get('name'), "Noma'lum")
-                startup_group_link = sanitize_html_text(startup.get('group_link'), "—")
-                bot.send_message(
-                    user_id,
-                    f"🎉 <b>Tabriklaymiz!</b>\n\n"
-                    f"✅ Sizning so'rovingiz qabul qilindi.\n\n"
-                    f"🎯 <b>Startup:</b> {startup_name}\n"
-                    f"🔗 <b>Guruhga qo'shilish:</b> {startup_group_link}"
-                )
-            except Exception as e:
-                logging.error(f"Foydalanuvchiga xabar yuborishda xatolik: {e}")
-        
-        # Egaga xabar
+
+        try:
+            startup_name = sanitize_html_text(startup.get('name'), "Noma'lum")
+            startup_group_link = sanitize_html_text(startup.get('group_link'), "—")
+            bot.send_message(
+                user_id,
+                f"🎉 <b>Tabriklaymiz!</b>\n\n"
+                f"✅ Sizning so'rovingiz qabul qilindi.\n\n"
+                f"🎯 <b>Startup:</b> {startup_name}\n"
+                f"🔗 <b>Guruhga qo'shilish:</b> {startup_group_link}",
+            )
+        except Exception as e:
+            logging.error(f"Foydalanuvchiga xabar yuborishda xatolik: {e}")
+
         try:
             bot.edit_message_text(
-                "✅ <b>So'rov tasdiqlandi va foydalanuvchiga havola yuborildi.</b>",
+                "✅ <b>So'rov tasdiqlandi va foydalanuvchiga havola yuborildi.</b>\n\nBu so'rov qayta ishlangan.",
                 call.message.chat.id,
-                call.message.message_id
+                call.message.message_id,
             )
-        except:
+        except Exception:
             pass
+
         bot.answer_callback_query(call.id, "✅ Tasdiqlandi!")
-        
-        # Kanal postini yangilash
+
         try:
             update_channel_post(startup_id)
-        except:
+        except Exception:
             pass
-        
+
     except Exception as e:
         logging.error(f"Approve join xatosi: {e}")
         bot.answer_callback_query(call.id, "⚠️ Xatolik yuz berdi!", show_alert=True)
@@ -1566,36 +1610,81 @@ def approve_join_request(call):
 def reject_join_request(call):
     try:
         request_id = call.data.split('_')[2]
-        
-        # So'rov holatini yangilash
-        update_join_request(request_id, 'rejected')
-        
-        # So'rov ma'lumotlarini olish
+
         member = get_join_request(request_id)
-        if member:
-            user_id = member['user_id']
-            
-            # Foydalanuvchiga xabar
+        if not member:
+            bot.answer_callback_query(call.id, "❌ So'rov topilmadi!", show_alert=True)
+            return
+
+        startup_id = str(member['startup_id'])
+        startup = get_startup(startup_id)
+        if not startup:
+            bot.answer_callback_query(call.id, "❌ Startup topilmadi!", show_alert=True)
+            return
+
+        is_owner = startup.get('owner_id') == call.from_user.id
+        if not is_owner and not is_admin_user(call.from_user.id):
+            bot.answer_callback_query(call.id, "❌ Bu so'rovni faqat startup egasi rad eta oladi.", show_alert=True)
+            return
+
+        current_status = (member.get('status') or '').lower()
+        if current_status != 'pending':
+            status_map = {
+                'accepted': "✅ Bu so'rov allaqachon tasdiqlangan.",
+                'rejected': "❌ Bu so'rov allaqachon rad etilgan.",
+            }
+            bot.answer_callback_query(
+                call.id,
+                status_map.get(current_status, "ℹ️ Bu so'rov allaqachon qayta ishlangan."),
+                show_alert=True,
+            )
             try:
-                bot.send_message(
-                    user_id,
-                    "❌ <b>Afsus, so'rovingiz rad etildi.</b>\n\n"
-                    "Boshqa startaplarga qo'shilishingiz mumkin."
+                label = "tasdiqlangan" if current_status == "accepted" else "rad etilgan"
+                bot.edit_message_text(
+                    f"ℹ️ <b>Bu so'rov allaqachon {label}.</b>\n\nQayta rad etish mumkin emas.",
+                    call.message.chat.id,
+                    call.message.message_id,
                 )
-            except:
+            except Exception:
                 pass
-        
-        # Egaga xabar
+            return
+
+        rejected = transition_join_request_status(request_id, 'pending', 'rejected')
+        if not rejected:
+            latest = get_join_request(request_id) or {}
+            latest_status = (latest.get('status') or '').lower()
+            status_map = {
+                'accepted': "✅ Bu so'rov allaqachon tasdiqlangan.",
+                'rejected': "❌ Bu so'rov allaqachon rad etilgan.",
+            }
+            bot.answer_callback_query(
+                call.id,
+                status_map.get(latest_status, "ℹ️ Bu so'rov allaqachon qayta ishlangan."),
+                show_alert=True,
+            )
+            return
+
+        user_id = member['user_id']
+        try:
+            bot.send_message(
+                user_id,
+                "❌ <b>Afsus, so'rovingiz rad etildi.</b>\n\n"
+                "Boshqa startaplarga qo'shilishingiz mumkin.",
+            )
+        except Exception:
+            pass
+
         try:
             bot.edit_message_text(
-                "❌ <b>So'rov rad etildi.</b>",
+                "❌ <b>So'rov rad etildi.</b>\n\nBu so'rov qayta ishlangan.",
                 call.message.chat.id,
-                call.message.message_id
+                call.message.message_id,
             )
-        except:
+        except Exception:
             pass
+
         bot.answer_callback_query(call.id, "✅ Rad etildi!")
-        
+
     except Exception as e:
         logging.error(f"Reject join xatosi: {e}")
         bot.answer_callback_query(call.id, "⚠️ Xatolik yuz berdi!", show_alert=True)

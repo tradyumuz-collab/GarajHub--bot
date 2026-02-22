@@ -31,7 +31,7 @@ try:
         init_db, get_connection,
         get_user, save_user, update_user_field,
         create_startup, get_startup, get_startups_by_owner,
-        get_pending_startups, get_active_startups, update_startup_status,
+        get_pending_startups, get_active_startups, update_startup_status, transition_startup_status,
         get_statistics, get_all_users, get_recent_users, get_recent_startups,
         get_completed_startups, get_rejected_startups,
         get_startups_by_category, get_all_categories,
@@ -56,6 +56,7 @@ except ImportError as e:
     def save_user(*args): return None
     def get_startup(*args): return None
     def update_startup_status(*args): return True
+    def transition_startup_status(*args): return None
     def get_statistics(): return {
         'total_users': 0,
         'total_startups': 0,
@@ -1044,17 +1045,32 @@ def approve_startup(startup_id):
                 'success': False,
                 'error': 'Database mavjud emas'
             }), 500
-        
-        # Startup holatini yangilash
-        update_startup_status(startup_id, 'active')
-        
+
+        startup = transition_startup_status(startup_id, 'pending', 'active')
+        if not startup:
+            current = get_startup(startup_id)
+            if not current:
+                return jsonify({'success': False, 'error': 'Startap topilmadi'}), 404
+
+            status = current.get('status', 'unknown')
+            status_texts = {
+                'active': 'tasdiqlangan',
+                'rejected': 'rad etilgan',
+                'completed': 'yakunlangan',
+                'pending': 'kutilmoqda',
+            }
+            return jsonify({
+                'success': False,
+                'error': f"Bu startap allaqachon {status_texts.get(status, status)}.",
+                'data': {
+                    'id': startup_id,
+                    'status': status
+                }
+            }), 409
+
         # Bot orqali xabar yuborish
         if BOT_AVAILABLE:
             try:
-                startup = get_startup(startup_id)
-                if not startup:
-                    return jsonify({'success': False, 'error': 'Startap topilmadi'}), 404
-                
                 # Egaga xabar
                 if startup.get('owner_id'):
                     try:
@@ -1148,16 +1164,35 @@ def reject_startup(startup_id):
                 'success': False,
                 'error': 'Database mavjud emas'
             }), 500
-        
-        data = request.json
+
+        data = request.json or {}
         reason = data.get('reason', 'Qoidalarga muvofiq emas')
-        
-        update_startup_status(startup_id, 'rejected')
-        
+
+        startup = transition_startup_status(startup_id, 'pending', 'rejected')
+        if not startup:
+            current = get_startup(startup_id)
+            if not current:
+                return jsonify({'success': False, 'error': 'Startap topilmadi'}), 404
+
+            status = current.get('status', 'unknown')
+            status_texts = {
+                'active': 'tasdiqlangan',
+                'rejected': 'rad etilgan',
+                'completed': 'yakunlangan',
+                'pending': 'kutilmoqda',
+            }
+            return jsonify({
+                'success': False,
+                'error': f"Bu startap allaqachon {status_texts.get(status, status)}.",
+                'data': {
+                    'id': startup_id,
+                    'status': status
+                }
+            }), 409
+
         # Bot orqali xabar yuborish
         if BOT_AVAILABLE:
             try:
-                startup = get_startup(startup_id)
                 if startup and startup.get('owner_id'):
                     bot.send_message(
                         startup['owner_id'],
@@ -1195,18 +1230,37 @@ def complete_startup(startup_id):
                 'success': False,
                 'error': 'Database mavjud emas'
             }), 500
-        
-        data = request.json
+
+        data = request.json or {}
         results = data.get('results', 'Muvaffaqiyatli yakunlandi')
-        
-        # Startup holatini yangilash
-        update_startup_status(startup_id, 'completed')
+
+        startup = transition_startup_status(startup_id, 'active', 'completed')
+        if not startup:
+            current = get_startup(startup_id)
+            if not current:
+                return jsonify({'success': False, 'error': 'Startap topilmadi'}), 404
+
+            status = current.get('status', 'unknown')
+            status_texts = {
+                'active': 'faol',
+                'rejected': 'rad etilgan',
+                'completed': 'yakunlangan',
+                'pending': 'kutilmoqda',
+            }
+            return jsonify({
+                'success': False,
+                'error': f"Startapni yakunlash uchun joriy holat mos emas: {status_texts.get(status, status)}.",
+                'data': {
+                    'id': startup_id,
+                    'status': status
+                }
+            }), 409
+
         update_startup_results(startup_id, results, datetime.now())
-        
+
         # Bot orqali xabar yuborish
         if BOT_AVAILABLE:
             try:
-                startup = get_startup(startup_id)
                 if startup:
                     # Barcha a'zolarga xabar
                     members = get_all_startup_members(startup_id)

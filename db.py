@@ -1147,6 +1147,19 @@ def update_join_request(request_id: str, status: str):
     _get_db()[STARTUP_MEMBERS_COLLECTION].update_one({"id": rid}, {"$set": {"status": status}})
 
 
+def transition_join_request_status(request_id: str, from_status: str, to_status: str) -> Optional[Dict]:
+    rid = _to_int(request_id, None)
+    if rid is None:
+        return None
+
+    row = _get_db()[STARTUP_MEMBERS_COLLECTION].find_one_and_update(
+        {"id": rid, "status": from_status},
+        {"$set": {"status": to_status}},
+        return_document=ReturnDocument.AFTER,
+    )
+    return _without_mongo_id(row)
+
+
 def get_startup_members(startup_id: str, page: int = 1, per_page: int = 5) -> Tuple[List[Dict], int]:
     sid = _to_int(startup_id, None)
     if sid is None:

@@ -7,6 +7,8 @@ let activityChart = null;
 let startupDetailChart = null;
 let lastCheckTime = null;
 let notificationsInterval = null;
+let loadingRequestCount = 0;
+let appInitialized = false;
 
 // ==================== DOM YUKLANGANDA ====================
 document.addEventListener('DOMContentLoaded', function() {
@@ -15,19 +17,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // ==================== ASOSIY FUNKSIYALAR ====================
 function initializeApp() {
+    if (appInitialized) {
+        return;
+    }
+    appInitialized = true;
+
     // Event listenerlarni sozlash
     setupEventListeners();
     
     // Auth tekshirish
     checkAuth();
-    
-    // Loading ekranini yashirish
-    setTimeout(() => {
-        document.getElementById('loadingScreen').style.opacity = '0';
-        setTimeout(() => {
-            document.getElementById('loadingScreen').style.display = 'none';
-        }, 300);
-    }, 500);
     
     // Notification auto-check
     startNotificationChecker();
@@ -80,14 +79,20 @@ function setupEventListeners() {
         });
     });
     
-    // Menu toggle (mobil uchun)
-    const menuToggle = document.getElementById('menuToggle');
-    if (menuToggle) {
-        menuToggle.addEventListener('click', function() {
-            const sidebar = document.querySelector('.sidebar');
-            if (sidebar) {
-                sidebar.classList.toggle('active');
-            }
+    // Sidebar toggle (desktop + mobil)
+    ['menuToggle', 'sidebarToggle'].forEach(toggleId => {
+        const toggleBtn = document.getElementById(toggleId);
+        if (toggleBtn) {
+            toggleBtn.addEventListener('click', function() {
+                toggleSidebar();
+            });
+        }
+    });
+
+    const sidebarOverlay = document.getElementById('sidebarOverlay');
+    if (sidebarOverlay) {
+        sidebarOverlay.addEventListener('click', function() {
+            closeSidebar();
         });
     }
     
@@ -204,6 +209,13 @@ function setupEventListeners() {
     
     // Keyboard shortcuts
     document.addEventListener('keydown', handleKeyboardShortcuts);
+
+    // Desktopga qaytganda mobil sidebarn i yopib qo'yish
+    window.addEventListener('resize', () => {
+        if (window.innerWidth > 992) {
+            closeSidebar();
+        }
+    });
     
     // Dashboard filter buttons
     const growthFilter = document.getElementById('growthFilter');
@@ -341,6 +353,22 @@ async function handleLogout() {
 }
 
 // ==================== PAGE MANAGEMENT ====================
+function toggleSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    if (!sidebar) return;
+
+    sidebar.classList.toggle('active');
+    document.body.classList.toggle('sidebar-open', sidebar.classList.contains('active'));
+}
+
+function closeSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    if (!sidebar) return;
+
+    sidebar.classList.remove('active');
+    document.body.classList.remove('sidebar-open');
+}
+
 function showPage(pageId) {
     currentPage = pageId;
     
@@ -384,10 +412,7 @@ function showPage(pageId) {
     }
     
     // Mobil menuni yopish
-    const sidebar = document.querySelector('.sidebar');
-    if (sidebar && sidebar.classList.contains('active')) {
-        sidebar.classList.remove('active');
-    }
+    closeSidebar();
 }
 
 function setActiveMenuItem(pageId) {
@@ -583,7 +608,7 @@ function renderUserGrowthChart(chartData) {
                     labels: {
                         color: textColor,
                         font: {
-                            family: "'Inter', sans-serif"
+                            family: "'Manrope', sans-serif"
                         }
                     }
                 },
@@ -605,7 +630,7 @@ function renderUserGrowthChart(chartData) {
                     ticks: {
                         color: textColor,
                         font: {
-                            family: "'Inter', sans-serif"
+                            family: "'Manrope', sans-serif"
                         }
                     }
                 },
@@ -617,7 +642,7 @@ function renderUserGrowthChart(chartData) {
                     ticks: {
                         color: textColor,
                         font: {
-                            family: "'Inter', sans-serif"
+                            family: "'Manrope', sans-serif"
                         }
                     }
                 }
@@ -756,7 +781,10 @@ async function loadRecentActivity() {
 function filterActivity(type) {
     const buttons = document.querySelectorAll('.activity-filter-btn');
     buttons.forEach(btn => btn.classList.remove('active'));
-    event.target.classList.add('active');
+    const activeButton = document.querySelector(`.activity-filter-btn[data-type="${type}"]`);
+    if (activeButton) {
+        activeButton.classList.add('active');
+    }
     
     // Bu joyda faollikni filtrlash logikasi
     console.log('Faollik filtrlandi:', type);
@@ -1203,6 +1231,10 @@ async function approveStartup(startupId) {
             showToast('Startap tasdiqlandi', 'success');
             loadStartups();
             loadDashboard();
+        } else if (response.status === 409) {
+            showToast(data.error || 'Bu startap allaqachon qayta ishlangan', 'warning');
+            loadStartups();
+            loadDashboard();
         } else {
             showToast(data.error || 'Tasdiqlash xatosi', 'error');
         }
@@ -1240,6 +1272,11 @@ async function rejectStartup(startupId) {
         if (data.success) {
             showToast('Startap rad etildi', 'success');
             loadStartups();
+            loadDashboard();
+        } else if (response.status === 409) {
+            showToast(data.error || 'Bu startap allaqachon qayta ishlangan', 'warning');
+            loadStartups();
+            loadDashboard();
         } else {
             showToast(data.error || 'Rad etish xatosi', 'error');
         }
@@ -1273,6 +1310,11 @@ async function completeStartup(startupId) {
         if (data.success) {
             showToast('Startap yakunlandi', 'success');
             loadStartups();
+            loadDashboard();
+        } else if (response.status === 409) {
+            showToast(data.error || 'Startap holati yakunlashga mos emas', 'warning');
+            loadStartups();
+            loadDashboard();
         } else {
             showToast(data.error || 'Yakunlash xatosi', 'error');
         }
@@ -1823,7 +1865,7 @@ function showToast(message, type = 'info') {
         backgroundColor: colors[type] || colors.info,
         stopOnFocus: true,
         style: {
-            fontFamily: "'Inter', sans-serif",
+            fontFamily: "'Manrope', sans-serif",
             fontWeight: '500',
             borderRadius: '8px',
             padding: '12px 20px',
@@ -1833,20 +1875,18 @@ function showToast(message, type = 'info') {
 }
 
 function showLoading() {
-    const loading = document.getElementById('loadingScreen');
-    if (loading) {
-        loading.style.display = 'flex';
-        loading.style.opacity = '1';
+    loadingRequestCount += 1;
+    const requestBar = document.getElementById('requestBar');
+    if (requestBar) {
+        requestBar.classList.add('active');
     }
 }
 
 function hideLoading() {
-    const loading = document.getElementById('loadingScreen');
-    if (loading) {
-        loading.style.opacity = '0';
-        setTimeout(() => {
-            loading.style.display = 'none';
-        }, 300);
+    loadingRequestCount = Math.max(0, loadingRequestCount - 1);
+    const requestBar = document.getElementById('requestBar');
+    if (requestBar && loadingRequestCount === 0) {
+        requestBar.classList.remove('active');
     }
 }
 
@@ -2294,6 +2334,7 @@ function handleKeyboardShortcuts(e) {
     // ESC modal yopish
     if (e.key === 'Escape') {
         closeModal();
+        closeSidebar();
         
         // Notification dropdown yopish
         const dropdown = document.getElementById('notificationDropdown');
@@ -2471,6 +2512,3 @@ window.deleteAdmin = deleteAdmin;
 window.saveNotificationSettings = saveNotificationSettings;
 window.closeModal = closeModal;
 window.showNotifications = showNotifications;
-
-// Initialize the app
-window.onload = initializeApp;
