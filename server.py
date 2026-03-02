@@ -939,7 +939,6 @@ def get_startups_list():
                 'started_at': format_date_for_display(startup.get('started_at', '')),
                 'ended_at': format_date_for_display(startup.get('ended_at', '')),
                 'member_count': members_count,
-                'max_members': startup.get('max_members', 0),
                 'logo': startup.get('logo', ''),
                 'group_link': startup.get('group_link', '')
             })
@@ -1025,7 +1024,6 @@ def get_startup_details(startup_id):
                 'owner': owner_info,
                 'members': members,
                 'member_count': len(members),
-                'max_members': startup.get('max_members', 0),
                 'required_skills': startup.get('required_skills', ''),
                 'category': startup.get('category', 'Boshqa')
             }
@@ -1095,7 +1093,7 @@ def approve_startup(startup_id):
                         f"👤 <b>Muallif:</b> {owner_name}\n"
                         f"🏷️ <b>Kategoriya:</b> {startup.get('category', '—')}\n"
                         f"🔧 <b>Kerakli mutaxassislar:</b>\n{startup.get('required_skills', '—')}\n\n"
-                        f"👥 <b>A'zolar:</b> 0 / {startup.get('max_members', '—')}\n\n"
+                        f"👥 <b>A'zolar:</b> 0\n\n"
                         f"➕ <b>O'z startupingizni yaratish uchun:</b> @{bot.get_me().username}"
                     )
                     

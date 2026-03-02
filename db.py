@@ -350,7 +350,6 @@ def _migrate_sqlite_to_mongodb():
                     "owner_id": _to_int(data.get("owner_id"), 0) or 0,
                     "required_skills": data.get("required_skills") or "",
                     "category": data.get("category") or "Boshqa",
-                    "max_members": _to_int(data.get("max_members"), 10) or 10,
                     "status": data.get("status") or "pending",
                     "created_at": data.get("created_at") or _now_iso(),
                     "started_at": data.get("started_at"),
@@ -897,7 +896,6 @@ def create_startup(
     owner_id: int,
     required_skills: str = "",
     category: str = "Boshqa",
-    max_members: int = 10,
 ) -> Optional[str]:
     payload = {
         "name": name,
@@ -907,7 +905,6 @@ def create_startup(
         "owner_id": int(owner_id),
         "required_skills": required_skills or "",
         "category": category or "Boshqa",
-        "max_members": int(max_members),
         "status": "pending",
         "created_at": _now_iso(),
         "started_at": None,

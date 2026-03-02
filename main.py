@@ -993,7 +993,6 @@ def show_recommended_page(chat_id, page, message_id=None):
     
     # A'zolar sonini olish
     current_members = get_startup_member_count(startup['_id'])
-    max_members = startup.get('max_members', 10)
     
     user = get_user(startup['owner_id'])
     owner_name = sanitize_html_text(
@@ -1025,17 +1024,12 @@ def show_recommended_page(chat_id, page, message_id=None):
         f"👤 <b>Muallif:</b> {owner_name}\n"
         f"🏷️ <b>Kategoriya:</b> {startup_category}\n"
         f"🔧 <b>Kerakli mutaxassislar:</b> {startup_skills}\n"
-        f"👥 <b>A'zolar:</b> {current_members} / {max_members}\n"
+        f"👥 <b>A'zolar:</b> {current_members}\n"
         f"📌 <b>Tavsif:</b> {startup_description}"
     )
     
     markup = InlineKeyboardMarkup()
-    
-    # Agar a'zolar to'liq bo'lsa
-    if current_members >= max_members:
-        markup.add(InlineKeyboardButton('❌ A\'zolar to\'ldi', callback_data='full_members'))
-    else:
-        markup.add(InlineKeyboardButton('🤝 Qo\'shilish', callback_data=f'join_startup_{startup["_id"]}'))
+    markup.add(InlineKeyboardButton('🤝 Qo\'shilish', callback_data=f'join_startup_{startup["_id"]}'))
     
     # Navigatsiya tugmalari
     nav_buttons = []
@@ -1223,10 +1217,7 @@ def show_category_startups(chat_id, category_name, page, message_id=None):
             
             # A'zolar sonini olish
             current_members = get_startup_member_count(startup['_id'])
-            max_members = startup.get('max_members', 10)
-            
-            status_emoji = '✅' if current_members < max_members else '❌'
-            text += f"{i}. <b>{startup_name}</b> – {owner_name} {status_emoji}\n"
+            text += f"{i}. <b>{startup_name}</b> – {owner_name} (👥 {current_members})\n"
         
         markup = InlineKeyboardMarkup(row_width=5)
         
@@ -1296,7 +1287,6 @@ def handle_category_startup_view(call):
         
         # A'zolar sonini olish
         current_members = get_startup_member_count(startup_id)
-        max_members = startup.get('max_members', 10)
         
         user = get_user(startup['owner_id'])
         owner_name = sanitize_html_text(
@@ -1325,17 +1315,12 @@ def handle_category_startup_view(call):
             f"👤 <b>Muallif:</b> {owner_name}\n"
             f"🏷️ <b>Kategoriya:</b> {startup_category}\n"
             f"🔧 <b>Kerakli mutaxassislar:</b> {startup_skills}\n"
-            f"👥 <b>A'zolar:</b> {current_members} / {max_members}\n"
+            f"👥 <b>A'zolar:</b> {current_members}\n"
             f"📌 <b>Tavsif:</b> {startup_description}"
         )
         
         markup = InlineKeyboardMarkup()
-        
-        # Agar a'zolar to'liq bo'lsa
-        if current_members >= max_members:
-            markup.add(InlineKeyboardButton('❌ A\'zolar to\'ldi', callback_data='full_members'))
-        else:
-            markup.add(InlineKeyboardButton('🤝 Startupga Qo\'shilish', callback_data=f'join_startup_{startup_id}'))
+        markup.add(InlineKeyboardButton('🤝 Startupga Qo\'shilish', callback_data=f'join_startup_{startup_id}'))
         
         markup.add(InlineKeyboardButton('🔙 Orqaga', callback_data='back_to_categories'))
         
@@ -1391,13 +1376,6 @@ def handle_join_startup(call):
         startup = get_startup(startup_id)
         if not startup:
             bot.answer_callback_query(call.id, "❌ Startup topilmadi!", show_alert=True)
-            return
-
-        # A'zolar sonini tekshirish
-        current_members = get_startup_member_count(startup_id)
-        max_members = startup.get('max_members', 10)
-        if current_members >= max_members:
-            bot.answer_callback_query(call.id, "❌ A'zolar to'ldi!", show_alert=True)
             return
 
         # Startup egasi ekanligini tekshirish
@@ -1511,46 +1489,6 @@ def approve_join_request(call):
                     f"ℹ️ <b>Bu so'rov allaqachon {label}.</b>\n\nQayta tasdiqlash mumkin emas.",
                     call.message.chat.id,
                     call.message.message_id,
-                )
-            except Exception:
-                pass
-            return
-
-        current_members = get_startup_member_count(startup_id)
-        max_members = startup.get('max_members', 10)
-
-        if current_members >= max_members:
-            rejected = transition_join_request_status(request_id, 'pending', 'rejected')
-            if not rejected:
-                latest = get_join_request(request_id) or {}
-                latest_status = (latest.get('status') or '').lower()
-                status_map = {
-                    'accepted': "✅ Bu so'rov allaqachon tasdiqlangan.",
-                    'rejected': "❌ Bu so'rov allaqachon rad etilgan.",
-                }
-                bot.answer_callback_query(
-                    call.id,
-                    status_map.get(latest_status, "ℹ️ Bu so'rov allaqachon qayta ishlangan."),
-                    show_alert=True,
-                )
-                return
-
-            try:
-                bot.edit_message_text(
-                    "❌ <b>A'zolar to'ldi, so'rov rad etildi.</b>",
-                    call.message.chat.id,
-                    call.message.message_id,
-                )
-            except Exception:
-                pass
-
-            bot.answer_callback_query(call.id, "❌ A'zolar to'ldi!")
-
-            try:
-                bot.send_message(
-                    user_id,
-                    "❌ <b>Afsus, startupda joy qolmagan.</b>\n\n"
-                    "Boshqa startaplarga qo'shilishingiz mumkin.",
                 )
             except Exception:
                 pass
@@ -1688,10 +1626,6 @@ def reject_join_request(call):
     except Exception as e:
         logging.error(f"Reject join xatosi: {e}")
         bot.answer_callback_query(call.id, "⚠️ Xatolik yuz berdi!", show_alert=True)
-
-@bot.callback_query_handler(func=lambda call: call.data == 'full_members')
-def handle_full_members(call):
-    bot.answer_callback_query(call.id, "❌ A'zolar to'ldi!", show_alert=True)
 
 # Qolgan kodlar uchun message handler ...
 # (Character limit tufayli to'liq kod 2-qismda davom etiladi)
@@ -1977,14 +1911,9 @@ def process_startup_skills(message):
 
     skills = message_text
     category_data[user_id]['required_skills'] = skills
-    
-    msg = bot.send_message(message.chat.id,
-                          "👥 <b>Maksimal a'zolar sonini kiriting (sizga qancha a'zo kerak):</b>\n\n"
-                          "Masalan: 10",
-                          reply_markup=create_back_button())
-    bot.register_next_step_handler(msg, process_startup_max_members)
+    return finalize_startup_creation(message)
 
-def process_startup_max_members(message):
+def finalize_startup_creation(message):
     user_id = message.from_user.id
     message_text = (message.text or "").strip() if hasattr(message, "text") else ""
 
@@ -1993,18 +1922,6 @@ def process_startup_max_members(message):
         show_main_menu(message)
         return
 
-    try:
-        max_members = int(message_text)
-        if max_members <= 0:
-            raise ValueError
-    except (TypeError, ValueError):
-        msg = bot.send_message(message.chat.id,
-                              "⚠️ <b>Iltimos, musbat raqam kiriting!</b>\n\n"
-                              "Masalan: 10",
-                              reply_markup=create_back_button())
-        bot.register_next_step_handler(msg, process_startup_max_members)
-        return
-    
     global category_data
     if user_id not in category_data:
         bot.send_message(message.chat.id,
@@ -2015,7 +1932,6 @@ def process_startup_max_members(message):
         return
     
     data = category_data[user_id]
-    data['max_members'] = max_members
     
     # Barcha kerakli ma'lumotlarni tekshirish
     required_fields = ['owner_id', 'name', 'description', 'category', 'group_link']
@@ -2037,8 +1953,7 @@ def process_startup_max_members(message):
             group_link=data['group_link'],
             owner_id=data['owner_id'],
             required_skills=escape_html(data.get('required_skills', '')),
-            category=data.get('category', 'Boshqa'),
-            max_members=data['max_members']
+            category=data.get('category', 'Boshqa')
         )
     except Exception as e:
         logging.error(f"Startup create xatosi: {e}")
@@ -2098,7 +2013,6 @@ def process_startup_max_members(message):
         short_description = startup_description[:200] + ("..." if len(startup_description) > 200 else "")
         startup_category = sanitize_html_text(startup.get('category', data.get('category', 'Boshqa')), "Boshqa")
         startup_skills = sanitize_html_text(startup.get('required_skills', data.get('required_skills', '')), "—")
-        startup_max_members = startup.get('max_members', data.get('max_members', '—'))
         startup_logo = startup.get('logo') if startup else data.get('logo')
 
         text = (
@@ -2107,7 +2021,6 @@ def process_startup_max_members(message):
             f"📌 <b>Tavsif:</b> {short_description}\n"
             f"🏷️ <b>Kategoriya:</b> {startup_category}\n"
             f"🔧 <b>Kerak:</b> {startup_skills}\n"
-            f"👥 <b>Maksimal a'zolar:</b> {startup_max_members}\n\n"
             f"👤 <b>Muallif:</b> {owner_name}\n"
             f"📱 <b>Aloqa:</b> {contact_username}"
         )
@@ -2274,7 +2187,6 @@ def view_my_startup_details(chat_id, user_id, startup, message_id=None):
     
     # A'zolar soni
     current_members = get_startup_member_count(startup['_id'])
-    max_members = startup.get('max_members', 10)
     
     status_texts = {
         'pending': '⏳ Kutilmoqda',
@@ -2301,7 +2213,7 @@ def view_my_startup_details(chat_id, user_id, startup, message_id=None):
         f"📅 <b>Boshlanish sanasi:</b> {sanitize_html_text(start_date, '—')}\n"
         f"👤 <b>Muallif:</b> {owner_name}\n"
         f"🏷️ <b>Kategoriya:</b> {startup_category}\n"
-        f"👥 <b>A'zolar:</b> {current_members} / {max_members}\n"
+        f"👥 <b>A'zolar:</b> {current_members}\n"
         f"📌 <b>Tavsif:</b> {startup_description}"
     )
     
@@ -2566,12 +2478,11 @@ def show_joined_startups_page(chat_id, user_id, startups, page, message_id=None)
         
         # A'zolar sonini olish
         current_members = get_startup_member_count(startup['_id'])
-        max_members = startup.get('max_members', 10)
         
         startup_name = sanitize_html_text(startup.get('name'), "Noma'lum")
         startup_category = sanitize_html_text(startup.get('category'), "—")
         text += f"{i}. <b>{startup_name}</b> {status_emoji}\n"
-        text += f"   👥 {current_members}/{max_members} | 🏷️ {startup_category}\n\n"
+        text += f"   👥 {current_members} | 🏷️ {startup_category}\n\n"
     
     markup = InlineKeyboardMarkup(row_width=5)
     
@@ -2660,7 +2571,6 @@ def handle_joined_startup_view(call):
         
         # A'zolar sonini olish
         current_members = get_startup_member_count(startup_id)
-        max_members = startup.get('max_members', 10)
         
         # Sanani formatlash
         start_date = startup.get('started_at', '—')
@@ -2680,7 +2590,7 @@ def handle_joined_startup_view(call):
             f"👤 <b>Muallif:</b> {owner_name}\n"
             f"🏷️ <b>Kategoriya:</b> {startup_category}\n"
             f"🔧 <b>Kerakli mutaxassislar:</b> {startup_skills}\n"
-            f"👥 <b>A'zolar:</b> {current_members} / {max_members}\n"
+            f"👥 <b>A'zolar:</b> {current_members}\n"
             f"📌 <b>Tavsif:</b> {startup_description}\n"
             f"🔗 <b>Guruh havolasi:</b> {startup_group_link}"
         )
@@ -2991,6 +2901,7 @@ def admin_view_startup_details(call):
         created_at_raw = startup.get('created_at', '—')
         created_at_text = sanitize_html_text(str(created_at_raw)[:10] if created_at_raw else "—", "—")
         status_text = sanitize_html_text(startup.get('status'), "—")
+        current_members = get_startup_member_count(startup_id)
         
         text = (
             f"🖼 <b>Startup ma'lumotlari</b>\n\n"
@@ -3000,7 +2911,7 @@ def admin_view_startup_details(call):
             f"📱 <b>Aloqa:</b> {owner_contact}\n"
             f"🏷️ <b>Kategoriya:</b> {startup_category}\n"
             f"🔧 <b>Kerak:</b> {startup_skills}\n"
-            f"👥 <b>Maksimal a'zolar:</b> {startup.get('max_members', '—')}\n"
+            f"👥 <b>A'zolar:</b> {current_members}\n"
             f"🔗 <b>Guruh havolasi:</b> {startup_group_link}\n"
             f"📅 <b>Yaratilgan sana:</b> {created_at_text}\n"
             f"📊 <b>Holati:</b> {status_text}"
@@ -3092,7 +3003,7 @@ def admin_approve_startup(call):
             f"👤 <b>Muallif:</b> {owner_name}\n"
             f"🏷️ <b>Kategoriya:</b> {startup_category}\n"
             f"🔧 <b>Kerakli mutaxassislar:</b>\n{startup_skills}\n\n"
-            f"👥 <b>A'zolar:</b> 0 / {startup.get('max_members', '—')}\n\n"
+            f"👥 <b>A'zolar:</b> 0\n\n"
             f"➕ <b>O'z startupingizni yaratish uchun:</b> @{bot.get_me().username}"
         )
         
@@ -3736,7 +3647,6 @@ def update_channel_post(startup_id: str):
         
         # A'zolar sonini olish
         current_members = get_startup_member_count(startup_id)
-        max_members = startup.get('max_members', 10)
         
         user = get_user(startup['owner_id'])
         owner_name = sanitize_html_text(
@@ -3755,22 +3665,12 @@ def update_channel_post(startup_id: str):
             f"👤 <b>Muallif:</b> {owner_name}\n"
             f"🏷️ <b>Kategoriya:</b> {startup_category}\n"
             f"🔧 <b>Kerakli mutaxassislar:</b>\n{startup_skills}\n\n"
-            f"👥 <b>A'zolar:</b> {current_members} / {max_members}\n\n"
+            f"👥 <b>A'zolar:</b> {current_members}\n\n"
+            f"➕ <b>O'z startupingizni yaratish uchun:</b> @{bot.get_me().username}"
         )
-        
-        # Agar a'zolar to'liq bo'lsa
-        if current_members >= max_members:
-            channel_text += f"❌ <b>Startup to'ldi, yangi a'zolar qabul qilinmaydi.</b>\n\n"
-        else:
-            channel_text += (
-                f"➕ <b>O'z startupingizni yaratish uchun:</b> @{bot.get_me().username}"
-            )
-        
+
         markup = InlineKeyboardMarkup()
-        if current_members < max_members:
-            markup.add(InlineKeyboardButton('🤝 Startupga qo\'shilish', callback_data=f'join_startup_{startup_id}'))
-        else:
-            markup.add(InlineKeyboardButton('❌ A\'zolar to\'ldi', callback_data='full_members'))
+        markup.add(InlineKeyboardButton('🤝 Startupga qo\'shilish', callback_data=f'join_startup_{startup_id}'))
         
         try:
             # Postni tahrirlash

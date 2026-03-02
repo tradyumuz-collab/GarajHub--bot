@@ -1027,7 +1027,7 @@ function updateStartupsTable(startups) {
                 <td>${startup.owner_name}</td>
                 <td><span class="status-badge ${statusClass}">${statusText}</span></td>
                 <td>${formatDate(startup.created_at)}</td>
-                <td>${startup.member_count || 1}/${startup.max_members || 10}</td>
+                <td>${startup.member_count || 0}</td>
                 <td>
                     <div class="table-actions">
                         <button class="action-btn view-btn" onclick="viewStartup('${startup.id}')" title="Ko'rish">
@@ -1121,7 +1121,7 @@ function showStartupDetailModal(startup) {
                     ` : ''}
                     <div class="info-item">
                         <span class="info-label">A'zolar:</span>
-                        <span class="info-value">${startup.member_count || 0}/${startup.max_members || 10}</span>
+                        <span class="info-value">${startup.member_count || 0}</span>
                     </div>
                     ${startup.group_link ? `
                         <div class="info-item">
@@ -2232,7 +2232,6 @@ async function exportStartups() {
             { key: 'category', label: 'Kategoriya' },
             { key: 'status', label: 'Status' },
             { key: 'member_count', label: 'A\'zolar soni' },
-            { key: 'max_members', label: 'Maks a\'zolar' },
             { key: 'created_at', label: 'Yaratilgan sana' },
             { key: 'description', label: 'Tavsif' }
         ];
