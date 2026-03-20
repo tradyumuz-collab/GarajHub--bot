@@ -74,7 +74,7 @@ except ImportError as e:
     def add_admin(*args): return None
     def delete_admin(*args): return False
     def update_admin_last_login(*args): return None
-    def get_app_settings(): return {'site_name': 'GarajHub', 'admin_email': 'admin@garajhub.uz', 'timezone': 'Asia/Tashkent'}
+    def get_app_settings(): return {'site_name': 'CO Foundix', 'admin_email': 'admin@cofoundix.uz', 'timezone': 'Asia/Tashkent'}
     def update_app_settings(*args): return None
 
 # Bot import va ishga tushirish
@@ -241,7 +241,7 @@ except ImportError as e:
         print("⚠️ Bot mavjud emas, ishga tushirib bo'lmadi")
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
-app.secret_key = os.environ.get('SECRET_KEY', 'garajhub-admin-secret-key-2024')
+app.secret_key = os.environ.get('SECRET_KEY', 'cofoundix-admin-secret-key-2024')
 app.config['SESSION_TYPE'] = 'filesystem'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
 
@@ -263,13 +263,13 @@ ADMINS = {
     'admin': {
         'password': 'admin123',
         'full_name': 'Super Admin',
-        'email': 'admin@garajhub.uz',
+        'email': 'admin@cofoundix.uz',
         'role': 'superadmin'
     },
     'moderator': {
         'password': 'moderator123',
         'full_name': 'Moderator',
-        'email': 'moderator@garajhub.uz',
+        'email': 'moderator@cofoundix.uz',
         'role': 'moderator'
     }
 }
@@ -500,7 +500,7 @@ def login():
             session['admin_username'] = username
             session['admin_role'] = admin.get('role', 'admin')
             session['admin_name'] = admin.get('full_name', username)
-            session['admin_email'] = admin.get('email', f"{username}@garajhub.uz")
+            session['admin_email'] = admin.get('email', f"{username}@cofoundix.uz")
             if admin.get('id'):
                 session['admin_id'] = admin.get('id')
                 update_admin_last_login(admin.get('id'))
@@ -511,7 +511,7 @@ def login():
                 'user': {
                     'username': username,
                     'full_name': admin.get('full_name', username),
-                    'email': admin.get('email', f"{username}@garajhub.uz"),
+                    'email': admin.get('email', f"{username}@cofoundix.uz"),
                     'role': admin.get('role', 'admin')
                 }
             })
@@ -1494,8 +1494,8 @@ def settings():
     try:
         if request.method == 'GET':
             base_settings = get_app_settings() if DB_AVAILABLE else {
-                'site_name': 'GarajHub',
-                'admin_email': 'admin@garajhub.uz',
+                'site_name': 'CO Foundix',
+                'admin_email': 'admin@cofoundix.uz',
                 'timezone': 'Asia/Tashkent'
             }
             settings_data = {
@@ -1518,8 +1518,8 @@ def settings():
         else:
             # Sozlamalarni yangilash
             data = request.json
-            site_name = (data.get('site_name') or 'GarajHub').strip()
-            admin_email = (data.get('admin_email') or 'admin@garajhub.uz').strip()
+            site_name = (data.get('site_name') or 'CO Foundix').strip()
+            admin_email = (data.get('admin_email') or 'admin@cofoundix.uz').strip()
             timezone = (data.get('timezone') or 'Asia/Tashkent').strip()
             
             if DB_AVAILABLE:
@@ -1666,7 +1666,7 @@ if __name__ == '__main__':
     
     # Flask serverni ishga tushirish
     print(f"\n" + "="*50)
-    print(f"🚀 GarajHub Admin Panel")
+    print(f"🚀 CO Foundix Admin Panel")
     print(f"="*50)
     print(f"🌐 URL: http://localhost:{port}")
     print(f"🤖 Bot status: {'✅ Online' if BOT_AVAILABLE else '❌ Offline'}")

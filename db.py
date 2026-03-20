@@ -499,8 +499,8 @@ def _migrate_sqlite_to_mongodb():
                 doc = {
                     "_id": 1,
                     "id": 1,
-                    "site_name": data.get("site_name") or "GarajHub",
-                    "admin_email": data.get("admin_email") or "admin@garajhub.uz",
+                    "site_name": data.get("site_name") or "CO Foundix",
+                    "admin_email": data.get("admin_email") or "admin@cofoundix.uz",
                     "timezone": data.get("timezone") or "Asia/Tashkent",
                 }
                 db["app_settings"].replace_one({"_id": 1}, doc, upsert=True)
@@ -535,8 +535,8 @@ def _ensure_defaults():
             "$setOnInsert": {
                 "_id": 1,
                 "id": 1,
-                "site_name": "GarajHub",
-                "admin_email": "admin@garajhub.uz",
+                "site_name": "CO Foundix",
+                "admin_email": "admin@cofoundix.uz",
                 "timezone": "Asia/Tashkent",
             }
         },
@@ -553,7 +553,7 @@ def _ensure_defaults():
                     "username": "admin",
                     "password_hash": generate_password_hash("admin123"),
                     "full_name": "Super Admin",
-                    "email": "admin@garajhub.uz",
+                    "email": "admin@cofoundix.uz",
                     "role": "superadmin",
                     "last_login": None,
                 }
@@ -571,7 +571,7 @@ def _ensure_defaults():
                     "username": "admin2",
                     "password_hash": generate_password_hash("admin2123"),
                     "full_name": "Second Admin",
-                    "email": "admin2@garajhub.uz",
+                    "email": "admin2@cofoundix.uz",
                     "role": "admin",
                     "last_login": None,
                 }
@@ -589,7 +589,7 @@ def _ensure_defaults():
                     "username": "moderator",
                     "password_hash": generate_password_hash("moderator123"),
                     "full_name": "Moderator",
-                    "email": "moderator@garajhub.uz",
+                    "email": "moderator@cofoundix.uz",
                     "role": "moderator",
                     "last_login": None,
                 }
@@ -1253,8 +1253,8 @@ def get_statistics() -> Dict:
 def get_app_settings() -> Dict:
     row = _get_db()["app_settings"].find_one({"_id": 1}) or {}
     return {
-        "site_name": row.get("site_name", "GarajHub"),
-        "admin_email": row.get("admin_email", "admin@garajhub.uz"),
+        "site_name": row.get("site_name", "CO Foundix"),
+        "admin_email": row.get("admin_email", "admin@cofoundix.uz"),
         "timezone": row.get("timezone", "Asia/Tashkent"),
     }
 

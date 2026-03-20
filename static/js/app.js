@@ -455,7 +455,7 @@ function updateUserInfo() {
         const adminAvatar = document.getElementById('adminAvatar');
         
         if (adminName) adminName.textContent = currentUser.full_name;
-        if (adminEmail) adminEmail.textContent = currentUser.email || (currentUser.username + '@garajhub.uz');
+        if (adminEmail) adminEmail.textContent = currentUser.email || (currentUser.username + '@cofoundix.uz');
         if (adminAvatar) adminAvatar.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser.full_name)}&background=000&color=fff&bold=true`;
         
         // Role badge

@@ -1,4 +1,4 @@
-/* GarajHub Admin Panel - Minimal Oq-Qora Stil */
+/* CO Foundix Admin Panel - Minimal Oq-Qora Stil */
 :root {
     --bg-primary: #ffffff;
     --bg-secondary: #f8f9fa;
@@ -2432,7 +2432,7 @@ select:focus {
     color: var(--text-secondary);
 }
 
-/* ===== GarajHub Refresh Theme ===== */
+/* ===== CO Foundix Refresh Theme ===== */
 :root {
     --bg-primary: #f6fbf8;
     --bg-primary-rgb: 246, 251, 248;

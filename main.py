@@ -27,8 +27,8 @@ _ensure_utf8_stdio()
 load_dotenv()
 
 # Bot tokenini environmentdan olish
-BOT_TOKEN = ('BOT_TOKEN', '8765852101:AAGd41iB6CUYrrR3zvMdWoZgJS7aOFJG8AQ')
-CHANNEL_USERNAME = ('CHANNEL_USERNAME', '@Cofoundix')
+BOT_TOKEN = os.getenv('BOT_TOKEN', '8765852101:AAGd41iB6CUYrrR3zvMdWoZgJS7aOFJG8AQ')
+CHANNEL_USERNAME = os.getenv('CHANNEL_USERNAME', '@Cofoundix')
 
 def _env_int(name: str, default: int) -> int:
     raw = os.getenv(name, str(default))
@@ -528,7 +528,7 @@ def send_welcome_back_message(message_or_call, first_name):
     bot.send_message(
         chat_id,
         f"🎉 <b>Qaytganingiz bilan, {first_name}!</b>\n\n"
-        f"🚀 <b>GarajHub</b> startaplar platformasiga xush kelibsiz!\n\n",
+        f"🚀 <b>CO Foundix</b> startaplar platformasiga xush kelibsiz!\n\n",
         reply_markup=create_main_menu(user_id)
     )
 
@@ -1833,7 +1833,7 @@ def process_startup_logo(message):
     
     msg = bot.send_message(message.chat.id,
                           "🔗 <b>Guruh yoki kanal havolasini kiriting:</b>\n\n"
-                          "Masalan: https://t.me/GarajHub_uz yoki @GarajHub_uz",
+                          "Masalan: https://t.me/Cofoundix yoki @Cofoundix",
                           reply_markup=create_back_button())
     bot.register_next_step_handler(msg, process_startup_group_link)
 
@@ -1850,7 +1850,7 @@ def process_startup_group_link(message):
         msg = bot.send_message(
             message.chat.id,
             "⚠️ <b>Iltimos, Telegram havolasini matn ko'rinishida yuboring.</b>\n\n"
-            "Masalan: https://t.me/GarajHub_uz yoki @GarajHub_uz",
+            "Masalan: https://t.me/Cofoundix yoki @Cofoundix",
             reply_markup=create_back_button()
         )
         bot.register_next_step_handler(msg, process_startup_group_link)
@@ -1867,8 +1867,8 @@ def process_startup_group_link(message):
         msg = bot.send_message(message.chat.id,
                               "⚠️ <b>Noto'g'ri havola format!</b>\n\n"
                               "Iltimos, Telegram guruh yoki kanal havolasini kiriting:\n"
-                              "• https://t.me/GarajHub_uz\n"
-                              "• @Garajhub_uz\n\n"
+                              "• https://t.me/Cofoundix\n"
+                              "• @Cofoundix\n\n"
                               "Yoki '🔙 Orqaga' tugmasini bosing:",
                               reply_markup=create_back_button())
         bot.register_next_step_handler(msg, process_startup_group_link)
@@ -3706,7 +3706,7 @@ def update_channel_post(startup_id: str):
 if __name__ == '__main__':
     init_db()
     print("=" * 60)
-    print("🚀 GarajHub Bot ishga tushdi...")
+    print("🚀 CO Foundix Bot ishga tushdi...")
     print(f"👨‍💼 Admin IDs: {', '.join(str(x) for x in sorted(ADMIN_IDS))}")
     print(f"📢 Kanal: {CHANNEL_USERNAME}")
     try:
