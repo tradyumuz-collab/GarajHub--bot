@@ -27,8 +27,8 @@ _ensure_utf8_stdio()
 load_dotenv()
 
 # Bot tokenini environmentdan olish
-BOT_TOKEN = os.getenv('BOT_TOKEN', '8765852101:AAGd41iB6CUYrrR3zvMdWoZgJS7aOFJG8AQ')
-CHANNEL_USERNAME = os.getenv('CHANNEL_USERNAME', '@Cofoundix_bot')
+BOT_TOKEN = ('BOT_TOKEN', '8765852101:AAGd41iB6CUYrrR3zvMdWoZgJS7aOFJG8AQ')
+CHANNEL_USERNAME = ('CHANNEL_USERNAME', '@Cofoundix_bot')
 
 def _env_int(name: str, default: int) -> int:
     raw = os.getenv(name, str(default))
