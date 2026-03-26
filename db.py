@@ -49,8 +49,8 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-MONGODB_URI = _env_str("MONGODB_URI", "MONGO_URL", "DATABASE_URL", default="mongodb://mongo:oOtQMUCpqpIzynSCUEVZfCQQBCMQaxBQ@tramway.proxy.rlwy.net:10002")
-MONGODB_DB_NAME = _env_str("MONGODB_DB_NAME", default="garajhub")
+MONGODB_URI = _env_str("MONGODB_URI", "MONGO_URL", "DATABASE_URL", default="mongodb://mongo:iFsFFOVeeBSqkyQVPmsfUSvHHleBuIPK@gondola.proxy.rlwy.net:18683")
+MONGODB_DB_NAME = _env_str("MONGODB_DB_NAME", default="Sayt")
 MONGODB_TIMEOUT_MS = _env_int("MONGODB_TIMEOUT_MS", 5000)
 MONGO_AUTO_MIGRATE = _env_str("MONGO_AUTO_MIGRATE", default="1") == "1"
 SQLITE_MIGRATION_PATH = _env_str("SQLITE_MIGRATION_PATH", default="garajhub.db")
