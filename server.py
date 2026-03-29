@@ -1,7 +1,8 @@
 import os
 import json
 import logging
-from datetime import datetime, timedelta
+import html
+from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template, jsonify, request, session, send_from_directory
 from flask_cors import CORS
 from functools import wraps
@@ -21,6 +22,41 @@ def _ensure_utf8_stdio():
                 pass
 
 _ensure_utf8_stdio()
+
+TELEGRAM_CAPTION_LIMIT = 1024
+
+
+def _sanitize_html_text(value, default: str = "\u2014") -> str:
+    if value is None:
+        return default
+    raw = str(value).strip()
+    if not raw:
+        return default
+    # Telegram HTML parse_mode uchun xavfsiz qilamiz.
+    return html.escape(raw, quote=False)
+
+
+def _truncate_telegram_html(text: str, limit: int = TELEGRAM_CAPTION_LIMIT, suffix: str = "…") -> str:
+    if text is None:
+        return ""
+    raw = str(text)
+    if len(raw) <= limit:
+        return raw
+
+    cut = max(0, limit - len(suffix))
+    truncated = raw[:cut]
+
+    last_lt = truncated.rfind("<")
+    last_gt = truncated.rfind(">")
+    if last_lt > last_gt:
+        truncated = truncated[:last_lt]
+
+    last_amp = truncated.rfind("&")
+    last_sc = truncated.rfind(";")
+    if last_amp > last_sc:
+        truncated = truncated[:last_amp]
+
+    return truncated.rstrip() + suffix
 
 # Bot va Database importlarini aniq qilamiz
 sys.path.append('.')  # Joriy papkaga qo'shamiz
@@ -110,7 +146,7 @@ try:
         col = _get_bot_lock_collection()
         if col is None:
             return True
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         expires_at = now + timedelta(seconds=BOT_LOCK_TTL_SEC)
         try:
             col.update_one(
@@ -142,7 +178,7 @@ try:
         col = _get_bot_lock_collection()
         if col is None:
             return True
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         expires_at = now + timedelta(seconds=BOT_LOCK_TTL_SEC)
         try:
             result = col.update_one(
@@ -158,7 +194,7 @@ try:
         col = _get_bot_lock_collection()
         if col is None:
             return
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         try:
             col.update_one(
                 {"_id": BOT_LOCK_ID, "owner": instance_id},
@@ -1066,6 +1102,12 @@ def approve_startup(startup_id):
                 }
             }), 409
 
+        # Telegram HTML parse_mode uchun xavfsiz matnlar (DBga yozilmaydi).
+        startup["name"] = _sanitize_html_text(startup.get("name"), "Noma'lum")
+        startup["description"] = _sanitize_html_text(startup.get("description"), "\u2014")
+        startup["category"] = _sanitize_html_text(startup.get("category"), "\u2014")
+        startup["required_skills"] = _sanitize_html_text(startup.get("required_skills"), "\u2014")
+
         # Bot orqali xabar yuborish
         if BOT_AVAILABLE:
             try:
@@ -1085,6 +1127,7 @@ def approve_startup(startup_id):
                 try:
                     user = get_user(startup['owner_id'])
                     owner_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else "Noma'lum"
+                    owner_name = _sanitize_html_text(owner_name, "Noma'lum")
                     
                     # Post matni
                     channel_text = (
@@ -1106,7 +1149,7 @@ def approve_startup(startup_id):
                         sent_message = bot.send_photo(
                             CHANNEL_USERNAME, 
                             startup['logo'], 
-                            caption=channel_text, 
+                            caption=_truncate_telegram_html(channel_text, TELEGRAM_CAPTION_LIMIT), 
                             reply_markup=markup, 
                             parse_mode='HTML'
                         )

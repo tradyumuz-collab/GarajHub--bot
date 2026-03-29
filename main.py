@@ -80,7 +80,7 @@ def _close_startup_admin_review_messages(startup: Dict, text: str, skip_chat_id:
                 bot.edit_message_caption(
                     chat_id=chat_id,
                     message_id=message_id,
-                    caption=text,
+                    caption=_truncate_telegram_html(text, TELEGRAM_CAPTION_LIMIT),
                     parse_mode="HTML"
                 )
             else:
@@ -111,7 +111,7 @@ def _close_payment_admin_review_messages(payment: Dict, text: str, skip_chat_id:
             bot.edit_message_caption(
                 chat_id=chat_id,
                 message_id=message_id,
-                caption=text,
+                caption=_truncate_telegram_html(text, TELEGRAM_CAPTION_LIMIT),
                 parse_mode="HTML"
             )
         except Exception:
@@ -146,6 +146,60 @@ def sanitize_html_text(value, default: str = "—") -> str:
     if not raw:
         return default
     return escape_html(html.unescape(raw))
+
+
+TELEGRAM_TEXT_LIMIT = 4096
+TELEGRAM_CAPTION_LIMIT = 1024
+
+
+def _truncate_telegram_html(text: str, limit: int = TELEGRAM_CAPTION_LIMIT, suffix: str = "…") -> str:
+    """Telegram HTML parse_mode uchun matnni limitdan oshirmay qisqartiradi."""
+    if text is None:
+        return ""
+    raw = str(text)
+    if len(raw) <= limit:
+        return raw
+
+    cut = max(0, limit - len(suffix))
+    truncated = raw[:cut]
+
+    # HTML tegini yoki entity ni yarmida kesib qo'ymaslik.
+    last_lt = truncated.rfind("<")
+    last_gt = truncated.rfind(">")
+    if last_lt > last_gt:
+        truncated = truncated[:last_lt]
+
+    last_amp = truncated.rfind("&")
+    last_sc = truncated.rfind(";")
+    if last_amp > last_sc:
+        truncated = truncated[:last_amp]
+
+    truncated = truncated.rstrip()
+    return truncated + suffix
+
+
+def _split_telegram_html_message(text: str, limit: int = TELEGRAM_TEXT_LIMIT) -> List[str]:
+    """Uzun HTML xabarni bir nechta xabarga bo'ladi (asosan `\\n` bo'yicha)."""
+    if text is None:
+        return [""]
+    remaining = str(text)
+    parts: List[str] = []
+
+    while remaining:
+        if len(remaining) <= limit:
+            parts.append(remaining)
+            break
+
+        split_at = remaining.rfind("\n", 0, limit + 1)
+        if split_at <= 0:
+            split_at = limit
+
+        chunk = remaining[:split_at].rstrip()
+        parts.append(chunk)
+        remaining = remaining[split_at:].lstrip("\n").lstrip()
+
+    return [p for p in parts if p]
+
 
 # Database import
 from db import (
@@ -496,7 +550,7 @@ def handle_photo_messages(message):
     admin_review_messages = []
     for admin_chat_id in ADMIN_IDS:
         try:
-            sent_msg = bot.send_photo(admin_chat_id, receipt_file_id, caption=text, reply_markup=markup, parse_mode='HTML')
+            sent_msg = bot.send_photo(admin_chat_id, receipt_file_id, caption=_truncate_telegram_html(text, TELEGRAM_CAPTION_LIMIT), reply_markup=markup, parse_mode='HTML')
             admin_review_messages.append({"chat_id": admin_chat_id, "message_id": sent_msg.message_id})
         except Exception as e:
             logging.error(f"Admin payment notify xatosi ({admin_chat_id}): {e}")
@@ -1027,10 +1081,14 @@ def show_recommended_page(chat_id, page, message_id=None):
         f"👥 <b>A'zolar:</b> {current_members}\n"
         f"📌 <b>Tavsif:</b> {startup_description}"
     )
+    caption_text = _truncate_telegram_html(text, TELEGRAM_CAPTION_LIMIT)
+    message_text = _truncate_telegram_html(text, TELEGRAM_TEXT_LIMIT)
     
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton('🤝 Qo\'shilish', callback_data=f'join_startup_{startup["_id"]}'))
     
+    markup.add(InlineKeyboardButton('📄 Batafsil', callback_data=f'rec_details_{startup["_id"]}'))
+
     # Navigatsiya tugmalari
     nav_buttons = []
     if page > 1:
@@ -1051,7 +1109,7 @@ def show_recommended_page(chat_id, page, message_id=None):
                     bot.edit_message_media(
                         chat_id=chat_id,
                         message_id=message_id,
-                        media=types.InputMediaPhoto(startup['logo'], caption=text, parse_mode='HTML'),
+                        media=types.InputMediaPhoto(startup['logo'], caption=caption_text, parse_mode='HTML'),
                         reply_markup=markup
                     )
                 except:
@@ -1059,7 +1117,7 @@ def show_recommended_page(chat_id, page, message_id=None):
                         bot.edit_message_caption(
                             chat_id=chat_id,
                             message_id=message_id,
-                            caption=text,
+                            caption=caption_text,
                             reply_markup=markup,
                             parse_mode='HTML'
                         )
@@ -1068,11 +1126,11 @@ def show_recommended_page(chat_id, page, message_id=None):
                             bot.delete_message(chat_id, message_id)
                         except:
                             pass
-                        msg = bot.send_photo(chat_id, startup['logo'], caption=text, reply_markup=markup, parse_mode='HTML')
+                        msg = bot.send_photo(chat_id, startup['logo'], caption=caption_text, reply_markup=markup, parse_mode='HTML')
             else:
                 try:
                     bot.edit_message_text(
-                        text=text,
+                        text=message_text,
                         chat_id=chat_id,
                         message_id=message_id,
                         reply_markup=markup
@@ -1082,18 +1140,68 @@ def show_recommended_page(chat_id, page, message_id=None):
                         bot.delete_message(chat_id, message_id)
                     except:
                         pass
-                    bot.send_message(chat_id, text, reply_markup=markup)
+                    bot.send_message(chat_id, message_text, reply_markup=markup)
         else:
             if startup.get('logo'):
-                bot.send_photo(chat_id, startup['logo'], caption=text, reply_markup=markup, parse_mode='HTML')
+                bot.send_photo(chat_id, startup['logo'], caption=caption_text, reply_markup=markup, parse_mode='HTML')
             else:
-                bot.send_message(chat_id, text, reply_markup=markup)
+                bot.send_message(chat_id, message_text, reply_markup=markup)
     except Exception as e:
         logging.error(f"Xabar yuborish/yangilashda xatolik: {e}")
         if startup.get('logo'):
-            bot.send_photo(chat_id, startup['logo'], caption=text, reply_markup=markup, parse_mode='HTML')
+            bot.send_photo(chat_id, startup['logo'], caption=caption_text, reply_markup=markup, parse_mode='HTML')
         else:
-            bot.send_message(chat_id, text, reply_markup=markup)
+            bot.send_message(chat_id, message_text, reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('rec_details_'))
+def handle_recommended_details(call):
+    try:
+        startup_id = call.data.replace('rec_details_', '', 1)
+        startup = get_startup(startup_id)
+        if not startup:
+            bot.answer_callback_query(call.id, "❌ Startup topilmadi!", show_alert=True)
+            return
+
+        current_members = get_startup_member_count(startup_id)
+
+        user = get_user(startup.get('owner_id'))
+        owner_name = sanitize_html_text(
+            f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else "Noma'lum",
+            "Noma'lum"
+        )
+        startup_name = sanitize_html_text(startup.get('name'), "Noma'lum")
+        startup_category = sanitize_html_text(startup.get('category'), "—")
+        startup_skills = sanitize_html_text(startup.get('required_skills'), "—")
+        startup_description = sanitize_html_text(startup.get('description'), "—")
+
+        start_date = startup.get('started_at', '—')
+        if start_date and start_date != '—':
+            if isinstance(start_date, datetime):
+                start_date = start_date.strftime('%d-%m-%Y')
+            else:
+                try:
+                    start_date = datetime.fromisoformat(str(start_date)).strftime('%d-%m-%Y')
+                except Exception:
+                    pass
+
+        details_text = (
+            f"📄 <b>Startup batafsil</b>\n\n"
+            f"🎯 <b>Nomi:</b> {startup_name}\n"
+            f"📅 <b>Boshlangan sana:</b> {sanitize_html_text(start_date, '—')}\n"
+            f"👤 <b>Muallif:</b> {owner_name}\n"
+            f"🏷️ <b>Kategoriya:</b> {startup_category}\n"
+            f"🔧 <b>Kerakli mutaxassislar:</b> {startup_skills}\n"
+            f"👥 <b>A'zolar:</b> {current_members}\n\n"
+            f"📝 <b>Tavsif:</b>\n{startup_description}"
+        )
+
+        for part in _split_telegram_html_message(details_text, TELEGRAM_TEXT_LIMIT):
+            bot.send_message(call.message.chat.id, part, parse_mode='HTML')
+
+        bot.answer_callback_query(call.id)
+    except Exception as e:
+        logging.error(f"Recommended details error: {e}")
+        bot.answer_callback_query(call.id, "⚠️ Xatolik yuz berdi!", show_alert=True)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('rec_page_'))
 def handle_recommended_page(call):
@@ -1330,7 +1438,7 @@ def handle_category_startup_view(call):
                     bot.edit_message_media(
                         chat_id=call.message.chat.id,
                         message_id=call.message.message_id,
-                        media=types.InputMediaPhoto(startup['logo'], caption=text, parse_mode='HTML'),
+                        media=types.InputMediaPhoto(startup['logo'], caption=_truncate_telegram_html(text, TELEGRAM_CAPTION_LIMIT), parse_mode='HTML'),
                         reply_markup=markup
                     )
                 except:
@@ -1338,12 +1446,12 @@ def handle_category_startup_view(call):
                         bot.edit_message_caption(
                             chat_id=call.message.chat.id,
                             message_id=call.message.message_id,
-                            caption=text,
+                            caption=_truncate_telegram_html(text, TELEGRAM_CAPTION_LIMIT),
                             reply_markup=markup,
                             parse_mode='HTML'
                         )
                     except:
-                        bot.send_photo(call.message.chat.id, startup['logo'], caption=text, reply_markup=markup, parse_mode='HTML')
+                        bot.send_photo(call.message.chat.id, startup['logo'], caption=_truncate_telegram_html(text, TELEGRAM_CAPTION_LIMIT), reply_markup=markup, parse_mode='HTML')
             else:
                 try:
                     bot.edit_message_text(
@@ -1356,7 +1464,7 @@ def handle_category_startup_view(call):
                     bot.send_message(call.message.chat.id, text, reply_markup=markup)
         except:
             if startup.get('logo'):
-                bot.send_photo(call.message.chat.id, startup['logo'], caption=text, reply_markup=markup, parse_mode='HTML')
+                bot.send_photo(call.message.chat.id, startup['logo'], caption=_truncate_telegram_html(text, TELEGRAM_CAPTION_LIMIT), reply_markup=markup, parse_mode='HTML')
             else:
                 bot.send_message(call.message.chat.id, text, reply_markup=markup)
         
@@ -2035,7 +2143,7 @@ def finalize_startup_creation(message):
         for admin_chat_id in ADMIN_IDS:
             try:
                 if startup_logo:
-                    sent_msg = bot.send_photo(admin_chat_id, startup_logo, caption=text, reply_markup=markup, parse_mode='HTML')
+                    sent_msg = bot.send_photo(admin_chat_id, startup_logo, caption=_truncate_telegram_html(text, TELEGRAM_CAPTION_LIMIT), reply_markup=markup, parse_mode='HTML')
                 else:
                     sent_msg = bot.send_message(admin_chat_id, text, reply_markup=markup)
                 admin_review_messages.append({"chat_id": admin_chat_id, "message_id": sent_msg.message_id})
@@ -2240,7 +2348,7 @@ def view_my_startup_details(chat_id, user_id, startup, message_id=None):
                     bot.edit_message_media(
                         chat_id=chat_id,
                         message_id=message_id,
-                        media=types.InputMediaPhoto(startup['logo'], caption=text, parse_mode='HTML'),
+                        media=types.InputMediaPhoto(startup['logo'], caption=_truncate_telegram_html(text, TELEGRAM_CAPTION_LIMIT), parse_mode='HTML'),
                         reply_markup=markup
                     )
                 except:
@@ -2248,12 +2356,12 @@ def view_my_startup_details(chat_id, user_id, startup, message_id=None):
                         bot.edit_message_caption(
                             chat_id=chat_id,
                             message_id=message_id,
-                            caption=text,
+                            caption=_truncate_telegram_html(text, TELEGRAM_CAPTION_LIMIT),
                             reply_markup=markup,
                             parse_mode='HTML'
                         )
                     except:
-                        bot.send_photo(chat_id, startup['logo'], caption=text, reply_markup=markup, parse_mode='HTML')
+                        bot.send_photo(chat_id, startup['logo'], caption=_truncate_telegram_html(text, TELEGRAM_CAPTION_LIMIT), reply_markup=markup, parse_mode='HTML')
             else:
                 try:
                     bot.edit_message_text(
@@ -2266,12 +2374,12 @@ def view_my_startup_details(chat_id, user_id, startup, message_id=None):
                     bot.send_message(chat_id, text, reply_markup=markup)
         except:
             if startup.get('logo'):
-                bot.send_photo(chat_id, startup['logo'], caption=text, reply_markup=markup, parse_mode='HTML')
+                bot.send_photo(chat_id, startup['logo'], caption=_truncate_telegram_html(text, TELEGRAM_CAPTION_LIMIT), reply_markup=markup, parse_mode='HTML')
             else:
                 bot.send_message(chat_id, text, reply_markup=markup)
     else:
         if startup.get('logo'):
-            bot.send_photo(chat_id, startup['logo'], caption=text, reply_markup=markup, parse_mode='HTML')
+            bot.send_photo(chat_id, startup['logo'], caption=_truncate_telegram_html(text, TELEGRAM_CAPTION_LIMIT), reply_markup=markup, parse_mode='HTML')
         else:
             bot.send_message(chat_id, text, reply_markup=markup)
 
@@ -2396,7 +2504,8 @@ def process_startup_photo(message, startup_id, results_text):
         
         # Barcha a'zolarga xabar yuborish
         startup = get_startup(startup_id) or {}
-        startup_name = startup.get('name', "Startup")
+        startup_name = sanitize_html_text(startup.get('name', "Startup"), "Startup")
+        results_text = sanitize_html_text(results_text, "\u2014")
         end_date = datetime.now().strftime('%d-%m-%Y')
         success_count = 0
         
@@ -2405,12 +2514,12 @@ def process_startup_photo(message, startup_id, results_text):
                 bot.send_photo(
                     member_id,
                     photo_id,
-                    caption=(
+                    caption=_truncate_telegram_html((
                         f"🏁 <b>Startup yakunlandi</b>\n\n"
                         f"🎯 <b>{startup_name}</b>\n"
                         f"📅 <b>Yakunlangan sana:</b> {end_date}\n"
                         f"📝 <b>Natijalar:</b> {results_text}"
-                    ),
+                    ), TELEGRAM_CAPTION_LIMIT),
                     parse_mode='HTML'
                 )
                 success_count += 1
@@ -2608,7 +2717,7 @@ def handle_joined_startup_view(call):
                 bot.edit_message_media(
                     chat_id=call.message.chat.id,
                     message_id=call.message.message_id,
-                    media=types.InputMediaPhoto(startup['logo'], caption=text, parse_mode='HTML'),
+                    media=types.InputMediaPhoto(startup['logo'], caption=_truncate_telegram_html(text, TELEGRAM_CAPTION_LIMIT), parse_mode='HTML'),
                     reply_markup=markup
                 )
             else:
@@ -2620,7 +2729,7 @@ def handle_joined_startup_view(call):
                 )
         except:
             if startup.get('logo'):
-                bot.send_photo(call.message.chat.id, startup['logo'], caption=text, reply_markup=markup, parse_mode='HTML')
+                bot.send_photo(call.message.chat.id, startup['logo'], caption=_truncate_telegram_html(text, TELEGRAM_CAPTION_LIMIT), reply_markup=markup, parse_mode='HTML')
             else:
                 bot.send_message(call.message.chat.id, text, reply_markup=markup)
         
@@ -2938,7 +3047,7 @@ def admin_view_startup_details(call):
                 bot.edit_message_media(
                     chat_id=call.message.chat.id,
                     message_id=call.message.message_id,
-                    media=types.InputMediaPhoto(startup['logo'], caption=text, parse_mode='HTML'),
+                    media=types.InputMediaPhoto(startup['logo'], caption=_truncate_telegram_html(text, TELEGRAM_CAPTION_LIMIT), parse_mode='HTML'),
                     reply_markup=markup
                 )
             else:
@@ -2950,7 +3059,7 @@ def admin_view_startup_details(call):
                 )
         except:
             if startup.get('logo'):
-                bot.send_photo(call.message.chat.id, startup['logo'], caption=text, reply_markup=markup, parse_mode='HTML')
+                bot.send_photo(call.message.chat.id, startup['logo'], caption=_truncate_telegram_html(text, TELEGRAM_CAPTION_LIMIT), reply_markup=markup, parse_mode='HTML')
             else:
                 bot.send_message(call.message.chat.id, text, reply_markup=markup)
         
@@ -3013,7 +3122,7 @@ def admin_approve_startup(call):
         post_sent = False
         try:
             if startup.get('logo'):
-                sent_message = bot.send_photo(CHANNEL_USERNAME, startup['logo'], caption=channel_text, reply_markup=markup, parse_mode='HTML')
+                sent_message = bot.send_photo(CHANNEL_USERNAME, startup['logo'], caption=_truncate_telegram_html(channel_text, TELEGRAM_CAPTION_LIMIT), reply_markup=markup, parse_mode='HTML')
             else:
                 sent_message = bot.send_message(CHANNEL_USERNAME, channel_text, reply_markup=markup)
             
@@ -3156,11 +3265,11 @@ def process_broadcast_message(message):
         try:
             # Xabar turini tekshirish
             if message.photo:
-                bot.send_photo(user, message.photo[-1].file_id, caption=text if text else None, parse_mode='HTML')
+                bot.send_photo(user, message.photo[-1].file_id, caption=_truncate_telegram_html(text, TELEGRAM_CAPTION_LIMIT) if text else None, parse_mode='HTML')
             elif message.video:
-                bot.send_video(user, message.video.file_id, caption=text if text else None)
+                bot.send_video(user, message.video.file_id, caption=_truncate_telegram_html(text, TELEGRAM_CAPTION_LIMIT) if text else None)
             elif message.document:
-                bot.send_document(user, message.document.file_id, caption=text if text else None)
+                bot.send_document(user, message.document.file_id, caption=_truncate_telegram_html(text, TELEGRAM_CAPTION_LIMIT) if text else None)
             else:
                 bot.send_message(user, f"📢 <b>Yangilik!</b>\n\n{text}")
             
@@ -3322,7 +3431,7 @@ def handle_pro_pay_view(call):
             InlineKeyboardButton('✅ Tasdiqlash', callback_data=f'pro_pay_approve_{payment_id}'),
             InlineKeyboardButton('❌ Rad etish', callback_data=f'pro_pay_reject_{payment_id}')
         )
-        bot.send_photo(call.message.chat.id, receipt_id, caption=text, reply_markup=markup, parse_mode='HTML')
+        bot.send_photo(call.message.chat.id, receipt_id, caption=_truncate_telegram_html(text, TELEGRAM_CAPTION_LIMIT), reply_markup=markup, parse_mode='HTML')
         bot.answer_callback_query(call.id)
     except Exception as e:
         logging.error(f"pro_pay_view xatosi: {e}")
@@ -3678,7 +3787,7 @@ def update_channel_post(startup_id: str):
                 bot.edit_message_caption(
                     chat_id=CHANNEL_USERNAME,
                     message_id=post_id,
-                    caption=channel_text,
+                    caption=_truncate_telegram_html(channel_text, TELEGRAM_CAPTION_LIMIT),
                     reply_markup=markup,
                     parse_mode='HTML'
                 )
